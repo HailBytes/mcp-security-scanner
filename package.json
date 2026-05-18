@@ -38,6 +38,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint src --ext .ts --max-warnings 0",
     "test": "jest --config jest.config.cjs",
     "prepublishOnly": "npm run build"
