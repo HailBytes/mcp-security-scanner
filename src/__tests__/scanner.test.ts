@@ -4,6 +4,9 @@ import { ParsedMcpConfig } from '../parser';
 import { authRules } from '../rules/auth-rules';
 import { configRules } from '../rules/config-rules';
 import { injectionRules } from '../rules/injection-rules';
+import { runtimeRules } from '../rules/runtime-rules';
+import { toSarif } from '../sarif';
+import type { SecurityReport } from '../types';
 
 // ─── Helper: run a single rule against a mock ParsedMcpConfig ─────────────────
 
@@ -19,6 +22,11 @@ function runConfigRule(ruleId: RuleId, config: ParsedMcpConfig) {
 
 function runInjectionRule(ruleId: RuleId, config: ParsedMcpConfig) {
   const rule = injectionRules.find((r) => r.id === ruleId)!;
+  return rule.check(config);
+}
+
+function runRuntimeRule(ruleId: RuleId, config: ParsedMcpConfig) {
+  const rule = runtimeRules.find((r) => r.id === ruleId)!;
   return rule.check(config);
 }
 
@@ -265,3 +273,163 @@ describe('scan() integration', () => {
     expect(report.findings.every((f) => f.ruleId === RuleId.MISSING_TLS)).toBe(true);
   });
 });
+
+// ─── MISSING_RATE_LIMIT rule ──────────────────────────────────────────────────
+
+describe('MISSING_RATE_LIMIT rule', () => {
+  it('fires when rateLimit is absent', () => {
+    const config: ParsedMcpConfig = { serverUrl: 'https://example.com' };
+    const findings = runRuntimeRule(RuleId.MISSING_RATE_LIMIT, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].ruleId).toBe(RuleId.MISSING_RATE_LIMIT);
+    expect(findings[0].severity).toBe(Severity.MEDIUM);
+  });
+
+  it('fires when rateLimit.enabled is false', () => {
+    const config: ParsedMcpConfig = { rateLimit: { enabled: false } };
+    const findings = runRuntimeRule(RuleId.MISSING_RATE_LIMIT, config);
+    expect(findings).toHaveLength(1);
+  });
+
+  it('does not fire when rateLimit is enabled', () => {
+    const config: ParsedMcpConfig = {
+      rateLimit: { enabled: true, requestsPerMinute: 60 },
+    };
+    const findings = runRuntimeRule(RuleId.MISSING_RATE_LIMIT, config);
+    expect(findings).toHaveLength(0);
+  });
+});
+
+// ─── DEBUG_MODE_ENABLED rule ──────────────────────────────────────────────────
+
+describe('DEBUG_MODE_ENABLED rule', () => {
+  it('fires when debug is true', () => {
+    const config: ParsedMcpConfig = { debug: true };
+    const findings = runRuntimeRule(RuleId.DEBUG_MODE_ENABLED, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].ruleId).toBe(RuleId.DEBUG_MODE_ENABLED);
+    expect(findings[0].severity).toBe(Severity.LOW);
+  });
+
+  it('does not fire when debug is false', () => {
+    const config: ParsedMcpConfig = { debug: false };
+    const findings = runRuntimeRule(RuleId.DEBUG_MODE_ENABLED, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('does not fire when debug is absent', () => {
+    const config: ParsedMcpConfig = {};
+    const findings = runRuntimeRule(RuleId.DEBUG_MODE_ENABLED, config);
+    expect(findings).toHaveLength(0);
+  });
+});
+
+// ─── INSECURE_TRANSPORT rule ──────────────────────────────────────────────────
+
+describe('INSECURE_TRANSPORT rule', () => {
+  it('fires for a ws:// transport URL', () => {
+    const config: ParsedMcpConfig = {
+      transport: { url: 'ws://example.com/mcp' },
+    };
+    const findings = runRuntimeRule(RuleId.INSECURE_TRANSPORT, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].ruleId).toBe(RuleId.INSECURE_TRANSPORT);
+    expect(findings[0].severity).toBe(Severity.HIGH);
+  });
+
+  it('does not fire for a wss:// transport URL', () => {
+    const config: ParsedMcpConfig = {
+      transport: { url: 'wss://example.com/mcp' },
+    };
+    const findings = runRuntimeRule(RuleId.INSECURE_TRANSPORT, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('does not fire when transport.url is absent', () => {
+    const config: ParsedMcpConfig = {};
+    const findings = runRuntimeRule(RuleId.INSECURE_TRANSPORT, config);
+    expect(findings).toHaveLength(0);
+  });
+});
+
+// ─── failOn behaviour ─────────────────────────────────────────────────────────
+
+describe('failOn config', () => {
+  it('failOn=MEDIUM forces passed=false when a MEDIUM finding exists', async () => {
+    // WILDCARD_CORS is MEDIUM; with auth + https it wouldn't normally fail (score < 50)
+    const report = await scan({
+      configPath: undefined,
+      serverUrl: 'https://example.com',
+      rules: [RuleId.WILDCARD_CORS, RuleId.MISSING_RATE_LIMIT],
+      failOn: Severity.MEDIUM,
+    });
+    // Both WILDCARD_CORS and MISSING_RATE_LIMIT are MEDIUM — forced to scan them via serverUrl
+    // We know MISSING_RATE_LIMIT always fires with just a serverUrl (no rateLimit config)
+    const hasMedium = report.findings.some((f) => f.severity === Severity.MEDIUM);
+    expect(hasMedium).toBe(true);
+    expect(report.passed).toBe(false);
+  });
+
+  it('failOn=HIGH does NOT force passed=false when only MEDIUM findings exist', async () => {
+    // Scan with MISSING_RATE_LIMIT (MEDIUM) + failOn=HIGH — HIGH threshold not met
+    const report = await scan({
+      rules: [RuleId.MISSING_RATE_LIMIT],
+      serverUrl: 'https://example.com',
+      failOn: Severity.HIGH,
+    });
+    // MISSING_RATE_LIMIT is MEDIUM — below HIGH failOn threshold
+    // score=8 < 50, no critical, failOn=HIGH not triggered → passed=true
+    expect(report.findings.some((f) => f.severity === Severity.MEDIUM)).toBe(true);
+    expect(report.passed).toBe(true);
+  });
+});
+
+// ─── SARIF output from scan report ───────────────────────────────────────────
+
+describe('SARIF output structure', () => {
+  function makeReport(overrides: Partial<SecurityReport> = {}): SecurityReport {
+    return {
+      findings: [],
+      score: 0,
+      passed: true,
+      summary: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
+      scannedAt: new Date().toISOString(),
+      durationMs: 1,
+      ...overrides,
+    };
+  }
+
+  it('has correct SARIF version', () => {
+    const sarif = toSarif(makeReport());
+    expect(sarif.version).toBe('2.1.0');
+  });
+
+  it('has correct $schema URL', () => {
+    const sarif = toSarif(makeReport());
+    expect(sarif.$schema).toContain('sarif-schema-2.1.0.json');
+  });
+
+  it('has runs array with one run', () => {
+    const sarif = toSarif(makeReport());
+    expect(Array.isArray(sarif.runs)).toBe(true);
+    expect(sarif.runs).toHaveLength(1);
+  });
+
+  it('run tool driver has correct name', () => {
+    const sarif = toSarif(makeReport());
+    expect(sarif.runs[0].tool.driver.name).toBe('@hailbytes/mcp-security-scanner');
+  });
+
+  it('empty findings → results: []', () => {
+    const sarif = toSarif(makeReport({ findings: [] }));
+    expect(sarif.runs[0].results).toHaveLength(0);
+  });
+
+  it('findings appear in results', async () => {
+    const report = await scan({ serverUrl: 'https://example.com', rules: [RuleId.NO_AUTH] });
+    const sarif = toSarif(report);
+    expect(sarif.runs[0].results.length).toBeGreaterThan(0);
+    expect(sarif.runs[0].results[0].ruleId).toBe(RuleId.NO_AUTH);
+  });
+});
+

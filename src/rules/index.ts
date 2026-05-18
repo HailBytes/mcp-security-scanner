@@ -15,10 +15,11 @@ export interface Rule {
 import { authRules } from './auth-rules.js';
 import { injectionRules } from './injection-rules.js';
 import { configRules } from './config-rules.js';
+import { runtimeRules } from './runtime-rules.js';
 
 /**
  * Return all registered security rules.
  */
 export function getAllRules(): Rule[] {
-  return [...authRules, ...injectionRules, ...configRules];
+  return [...authRules, ...injectionRules, ...configRules, ...runtimeRules];
 }
