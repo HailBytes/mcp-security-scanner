@@ -1,0 +1,49 @@
+{
+  "name": "@hailbytes/mcp-security-scanner",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Scans MCP server configurations for common security issues: overprivileged tools, missing auth, prompt injection surface, unsafe defaults.",
+  "type": "module",
+  "license": "MIT",
+  "author": "HailBytes, LLC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HailBytes/mcp-security-scanner.git"
+  },
+  "bugs": {
+    "url": "https://github.com/HailBytes/mcp-security-scanner/issues"
+  },
+  "homepage": "https://hailbytes.com/mcp",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "security",
+    "security-scanner",
+    "ai-security",
+    "llm-security",
+    "prompt-injection",
+    "mcp-server",
+    "hailbytes"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint src --ext .ts",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
