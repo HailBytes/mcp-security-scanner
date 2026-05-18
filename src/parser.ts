@@ -30,6 +30,8 @@ export interface ParsedMcpConfig {
     outputPath?: string;
     permissions?: string[];
   }>;
+  /** All string values extracted from the raw config (for secret scanning). */
+  rawStrings?: string[];
 }
 
 /**
@@ -121,6 +123,22 @@ function parseSimpleYaml(content: string): Record<string, unknown> {
 }
 
 /**
+ * Recursively extract all string values from a parsed object.
+ */
+function extractStrings(value: unknown, result: string[] = []): string[] {
+  if (typeof value === 'string') {
+    result.push(value);
+  } else if (Array.isArray(value)) {
+    for (const item of value) extractStrings(item, result);
+  } else if (value !== null && typeof value === 'object') {
+    for (const v of Object.values(value as Record<string, unknown>)) {
+      extractStrings(v, result);
+    }
+  }
+  return result;
+}
+
+/**
  * Map a raw config object to a normalized ParsedMcpConfig.
  */
 function normalizeConfig(raw: Record<string, unknown>): ParsedMcpConfig {
@@ -177,6 +195,9 @@ function normalizeConfig(raw: Record<string, unknown>): ParsedMcpConfig {
       permissions: Array.isArray(tool['permissions']) ? (tool['permissions'] as string[]) : undefined,
     }));
   }
+
+  // Populate rawStrings for secret-scanning rules
+  config.rawStrings = extractStrings(raw);
 
   return config;
 }

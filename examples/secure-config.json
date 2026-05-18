@@ -1,0 +1,33 @@
+{
+  "serverUrl": "https://secure-mcp.example.com",
+  "transport": {
+    "url": "wss://secure-mcp.example.com",
+    "tls": true,
+    "auth": {
+      "type": "bearer",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.c2VjcmV0LXRva2VuLWZvcnR5LXR3by1jaGFycw"
+    }
+  },
+  "cors": {
+    "origins": ["https://app.example.com", "https://admin.example.com"]
+  },
+  "verboseErrors": false,
+  "debug": false,
+  "rateLimit": {
+    "enabled": true,
+    "requestsPerMinute": 60
+  },
+  "tools": [
+    {
+      "name": "read-document",
+      "description": "Reads a document from the application data directory and returns its content.",
+      "outputPath": "/app/output/documents",
+      "permissions": ["filesystem:read"]
+    },
+    {
+      "name": "fetch-weather",
+      "description": "Fetches current weather data from the weather API for a given city.",
+      "permissions": ["network:weather-api"]
+    }
+  ]
+}

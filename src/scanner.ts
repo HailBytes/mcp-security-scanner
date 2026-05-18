@@ -1,7 +1,19 @@
-import { ScanConfig, SecurityReport, Finding, RuleId } from './types.js';
+import { ScanConfig, SecurityReport, Finding, RuleId, Severity } from './types.js';
 import { parseConfig } from './parser.js';
 import { getAllRules } from './rules/index.js';
 import { computeScore, computeSummary } from './scorer.js';
+
+/**
+ * Severity ordering for failOn comparison.
+ * Higher number = higher severity.
+ */
+const SEVERITY_ORDER: Record<Severity, number> = {
+  [Severity.INFO]: 0,
+  [Severity.LOW]: 1,
+  [Severity.MEDIUM]: 2,
+  [Severity.HIGH]: 3,
+  [Severity.CRITICAL]: 4,
+};
 
 /**
  * Scan an MCP server configuration for security issues.
@@ -32,7 +44,19 @@ export async function scan(config: ScanConfig): Promise<SecurityReport> {
   const score = computeScore(findings);
   const summary = computeSummary(findings);
   const hasCritical = summary.critical > 0;
-  const passed = score < 50 && !hasCritical;
+  let passed = score < 50 && !hasCritical;
+
+  // Honour failOn: force passed=false if any finding meets or exceeds the threshold
+  if (config.failOn !== undefined) {
+    const threshold = SEVERITY_ORDER[config.failOn];
+    const hasFailingFinding = findings.some(
+      (f) => SEVERITY_ORDER[f.severity] >= threshold
+    );
+    if (hasFailingFinding) {
+      passed = false;
+    }
+  }
+
   const durationMs = Date.now() - startMs;
 
   return {
