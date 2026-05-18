@@ -26,11 +26,9 @@ jobs:
 
       - name: Lint
         run: npm run lint
-        continue-on-error: true  # Lint tooling not yet configured — remove once ESLint is wired up
 
       - name: Test
         run: npm test
-        continue-on-error: true  # Test suite not yet written — remove once tests exist
 
       - name: Build
         run: npm run build
