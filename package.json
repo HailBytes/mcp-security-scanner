@@ -1,6 +1,6 @@
 {
   "name": "@hailbytes/mcp-security-scanner",
-  "version": "0.0.1",
+  "version": "1.0.1",
   "description": "Scans MCP server configurations for common security issues: overprivileged tools, missing auth, prompt injection surface, unsafe defaults.",
   "type": "module",
   "license": "MIT",
@@ -35,6 +35,11 @@
       "types": "./dist/index.d.ts"
     }
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
