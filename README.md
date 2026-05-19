@@ -67,3 +67,6 @@ console.log(report.passed);     // boolean
 - [hailbytes.com](https://hailbytes.com)
 - [hailbytes.com/mcp](https://hailbytes.com/mcp) — MCP server documentation
 - [GitHub Issues](https://github.com/HailBytes/mcp-security-scanner/issues)
+---
+
+*Part of the [HailBytes](https://hailbytes.com) open-source security toolkit.*
