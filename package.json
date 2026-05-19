@@ -7,7 +7,7 @@
   "author": "HailBytes, LLC",
   "repository": {
     "type": "git",
-    "url": "https://github.com/HailBytes/mcp-security-scanner.git"
+    "url": "git+https://github.com/HailBytes/mcp-security-scanner.git"
   },
   "bugs": {
     "url": "https://github.com/HailBytes/mcp-security-scanner/issues"
