@@ -2,15 +2,8 @@
 
 > Scans Model Context Protocol (MCP) server configurations for common security issues.
 
-![Status: Incubation — not yet published to npm](https://img.shields.io/badge/status-incubation-orange)
-
-**Planned npm name:** `@hailbytes/mcp-security-scanner`
-
----
-
-## ⚠️ Incubation Notice
-
-This package is in early incubation and **has not yet been published to npm**. The API may change without notice. Follow [hailbytes.com](https://hailbytes.com) for release announcements.
+[![npm version](https://img.shields.io/npm/v/%40hailbytes%2Fmcp-security-scanner.svg)](https://www.npmjs.com/package/%40hailbytes%2Fmcp-security-scanner)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ---
 
@@ -27,13 +20,13 @@ This package is in early incubation and **has not yet been published to npm**. T
 
 ---
 
-## Planned Audience
+## Who Is This For
 
 Security engineers, platform teams, and AI/LLM developers who build or operate MCP servers and want automated, continuous security checks integrated into their CI/CD pipelines.
 
 ---
 
-## Planned API Sketch
+## API
 
 ### CLI
 
