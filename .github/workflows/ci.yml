@@ -24,13 +24,20 @@ jobs:
       - name: Install dependencies
         run: npm install --include=dev
 
+      - name: Type check
+        run: npx tsc --noEmit
+
       - name: Lint
         run: npm run lint
-        continue-on-error: true  # Lint tooling not yet configured — remove once ESLint is wired up
 
       - name: Test
         run: npm test
-        continue-on-error: true  # Test suite not yet written — remove once tests exist
 
       - name: Build
         run: npm run build
+
+      - name: Smoke-test CLI (scan example configs)
+        run: |
+          node dist/cli.js examples/secure-config.json --format=table
+          node dist/cli.js examples/minimal-config.json --format=json || true
+          node dist/cli.js examples/vulnerable-config.json --format=sarif || true
