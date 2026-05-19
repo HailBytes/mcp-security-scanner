@@ -3,6 +3,7 @@
 > Scans Model Context Protocol (MCP) server configurations for common security issues: overprivileged tools, missing auth, prompt injection surface, and unsafe defaults.
 
 [![npm version](https://img.shields.io/npm/v/%40hailbytes%2Fmcp-security-scanner.svg)](https://www.npmjs.com/package/%40hailbytes%2Fmcp-security-scanner)
+[![npm downloads](https://img.shields.io/npm/dw/%40hailbytes%2Fmcp-security-scanner.svg)](https://www.npmjs.com/package/@hailbytes/mcp-security-scanner)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Bundle Size](https://img.shields.io/bundlephobia/minzip/%40hailbytes%2Fmcp-security-scanner)](https://bundlephobia.com/package/@hailbytes/mcp-security-scanner)
 
