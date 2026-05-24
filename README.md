@@ -1,4 +1,6 @@
 # @hailbytes/mcp-security-scanner
+![npm](https://img.shields.io/npm/dt/@hailbytes/mcp-security-scanner)
+
 
 > Scans Model Context Protocol (MCP) server configurations for common security issues.
 
