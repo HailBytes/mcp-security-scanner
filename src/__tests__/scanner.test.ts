@@ -237,6 +237,51 @@ describe('UNSAFE_TOOL_OUTPUT_PATH rule', () => {
     const findings = runInjectionRule(RuleId.UNSAFE_TOOL_OUTPUT_PATH, config);
     expect(findings).toHaveLength(0);
   });
+
+  // False-positive guard: /etcfoo is not /etc
+  it('does not fire for /etcfoo (prefix boundary guard)', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'boundary-tool', outputPath: '/etcfoo/bar' }],
+    };
+    const findings = runInjectionRule(RuleId.UNSAFE_TOOL_OUTPUT_PATH, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  // False-positive guard: /procrastinate is not /proc
+  it('does not fire for /procrastinate (prefix boundary guard)', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'boundary-tool', outputPath: '/procrastinate/file' }],
+    };
+    const findings = runInjectionRule(RuleId.UNSAFE_TOOL_OUTPUT_PATH, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  // False-positive guard: /device is not /dev
+  it('does not fire for /device (prefix boundary guard)', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'boundary-tool', outputPath: '/device/some-path' }],
+    };
+    const findings = runInjectionRule(RuleId.UNSAFE_TOOL_OUTPUT_PATH, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  // False-positive guard: /rootfs is not /root
+  it('does not fire for /rootfs (prefix boundary guard)', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'boundary-tool', outputPath: '/rootfs/data' }],
+    };
+    const findings = runInjectionRule(RuleId.UNSAFE_TOOL_OUTPUT_PATH, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  // Exact match: /etc is itself unsafe
+  it('fires when outputPath is exactly /etc (exact match)', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'etc-writer', outputPath: '/etc' }],
+    };
+    const findings = runInjectionRule(RuleId.UNSAFE_TOOL_OUTPUT_PATH, config);
+    expect(findings).toHaveLength(1);
+  });
 });
 
 // ─── Full scan() integration tests ───────────────────────────────────────────
