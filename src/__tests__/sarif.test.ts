@@ -52,9 +52,9 @@ describe('toSarif()', () => {
     expect(sarif.runs[0].tool.driver.name).toBe('@hailbytes/mcp-security-scanner');
   });
 
-  it('run.tool.driver.version is "0.0.1"', () => {
+  it('run.tool.driver.version matches package.json version', () => {
     const sarif = toSarif(makeReport());
-    expect(sarif.runs[0].tool.driver.version).toBe('0.0.1');
+    expect(sarif.runs[0].tool.driver.version).toBe('1.0.1');
   });
 
   it('empty findings → results: []', () => {

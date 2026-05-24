@@ -1,6 +1,24 @@
 import { SecurityReport, Finding, Severity } from './types.js';
 
 /**
+ * Resolve the package version from package.json at runtime.
+ * Uses createRequire to avoid import.meta issues in test/module environments.
+ */
+function getPackageVersion(): string {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const req = typeof require !== 'undefined'
+    ? require
+    : eval('require'); // fallback for ESM contexts
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
+    const pkg = req('../package.json');
+    return pkg.version;
+  } catch {
+    return '0.0.0';
+  }
+}
+
+/**
  * A minimal SARIF 2.1.0 output structure.
  */
 export interface SarifOutput {
@@ -107,7 +125,7 @@ export function toSarif(report: SecurityReport, configPath?: string): SarifOutpu
     tool: {
       driver: {
         name: '@hailbytes/mcp-security-scanner',
-        version: '0.0.1',
+        version: getPackageVersion(),
         rules: Array.from(ruleMap.values()),
       },
     },

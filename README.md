@@ -37,7 +37,7 @@ npx @hailbytes/mcp-security-scanner ./mcp-config.json
 npx @hailbytes/mcp-security-scanner https://my-mcp-server.example.com
 
 # Output SARIF for GitHub Code Scanning + fail on findings
-npx @hailbytes/mcp-security-scanner ./config.json --output=sarif --exit-code
+npx @hailbytes/mcp-security-scanner ./config.json --format=sarif --exit-code
 ```
 
 ### Programmatic
