@@ -1,4 +1,8 @@
+import { createRequire } from 'module';
 import { SecurityReport, Finding, Severity } from './types.js';
+
+const require = createRequire(import.meta.url);
+const pkgVersion = require('../package.json').version as string;
 
 /**
  * A minimal SARIF 2.1.0 output structure.
@@ -107,7 +111,7 @@ export function toSarif(report: SecurityReport, configPath?: string): SarifOutpu
     tool: {
       driver: {
         name: '@hailbytes/mcp-security-scanner',
-        version: '0.0.1',
+        version: pkgVersion,
         rules: Array.from(ruleMap.values()),
       },
     },
