@@ -52,9 +52,10 @@ export const injectionRules: Rule[] = [
       const findings: Finding[] = [];
       for (const tool of config.tools ?? []) {
         if (!tool.outputPath) continue;
-        const isUnsafe = UNSAFE_OUTPUT_DIRS.some((dir) =>
-          tool.outputPath!.startsWith(dir)
-        );
+        const isUnsafe = UNSAFE_OUTPUT_DIRS.some((dir) => {
+          const p = tool.outputPath!;
+          return p === dir || p.startsWith(dir + '/');
+        });
         if (isUnsafe) {
           findings.push({
             ruleId: RuleId.UNSAFE_TOOL_OUTPUT_PATH,
