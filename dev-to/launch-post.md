@@ -41,7 +41,7 @@ npx @hailbytes/mcp-security-scanner ./mcp-config.json
 npx @hailbytes/mcp-security-scanner https://my-mcp-server.example.com
 
 # SARIF output + fail the build
-npx @hailbytes/mcp-security-scanner ./config.json --output=sarif --exit-code
+npx @hailbytes/mcp-security-scanner ./config.json --format=sarif --exit-code
 ```
 
 ## Programmatic
