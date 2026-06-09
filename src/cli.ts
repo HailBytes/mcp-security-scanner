@@ -15,7 +15,8 @@
 
 import { scan } from './scanner.js';
 import { toSarif } from './sarif.js';
-import { ScanConfig, Severity, RuleId, Finding } from './types.js';
+import { Severity, RuleId, Finding } from './types.js';
+import { parseArgs } from './args.js';
 
 const SEVERITY_ORDER: Record<string, number> = {
   critical: 4,
@@ -35,6 +36,9 @@ function printHelp(): void {
   console.log('                              Force fail when any finding meets this severity');
   console.log('  --rule=RULE_ID              Run only the specified rule (repeatable)');
   console.log('  --help, -h                  Show this help message');
+  console.log('');
+  console.log('Valid rule IDs:');
+  console.log('  ' + Object.values(RuleId).join(', '));
   console.log('');
   console.log('Examples:');
   console.log('  mcp-security-scanner ./mcp-server.json');
@@ -93,73 +97,23 @@ function printTable(findings: Finding[], passed: boolean): void {
 }
 
 async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+  const parsed = parseArgs(process.argv.slice(2));
 
-  if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
+  if (parsed.kind === 'help') {
     printHelp();
-    if (args.length === 0) process.exit(2);
-    return;
+    process.exit(parsed.exitCode);
   }
 
-  let format: 'json' | 'sarif' | 'table' = 'json';
-  let exitCode = false;
-  let failOn: Severity | undefined;
-  const rules: RuleId[] = [];
-  let target: string | undefined;
-
-  for (const arg of args) {
-    if (arg.startsWith('--format=')) {
-      const val = arg.slice('--format='.length);
-      if (val === 'json' || val === 'sarif' || val === 'table') {
-        format = val;
-      } else {
-        console.error(`Error: Unknown format "${val}". Expected json, sarif, or table.`);
-        process.exit(2);
-      }
-    } else if (arg === '--exit-code') {
-      exitCode = true;
-    } else if (arg.startsWith('--fail-on=')) {
-      const val = arg.slice('--fail-on='.length).toLowerCase();
-      const severityMap: Record<string, Severity> = {
-        critical: Severity.CRITICAL,
-        high: Severity.HIGH,
-        medium: Severity.MEDIUM,
-        low: Severity.LOW,
-        info: Severity.INFO,
-      };
-      if (val in severityMap) {
-        failOn = severityMap[val];
-      } else {
-        console.error(`Error: Unknown severity "${val}". Expected critical, high, medium, low, or info.`);
-        process.exit(2);
-      }
-    } else if (arg.startsWith('--rule=')) {
-      const ruleId = arg.slice('--rule='.length) as RuleId;
-      rules.push(ruleId);
-    } else if (!arg.startsWith('--')) {
-      target = arg;
-    } else {
-      console.error(`Error: Unknown flag "${arg}". Use --help to see available options.`);
-      process.exit(2);
+  if (parsed.kind === 'error') {
+    console.error(`Error: ${parsed.message}`);
+    if (parsed.showHelp) {
+      console.error('');
+      printHelp();
     }
-  }
-
-  if (!target) {
-    console.error('Error: No config path or URL provided.');
-    console.error('');
-    printHelp();
     process.exit(2);
   }
 
-  const isUrl = target.startsWith('http://') || target.startsWith('https://') ||
-                target.startsWith('ws://') || target.startsWith('wss://');
-
-  const scanConfig: ScanConfig = isUrl
-    ? { serverUrl: target }
-    : { configPath: target };
-
-  if (failOn !== undefined) scanConfig.failOn = failOn;
-  if (rules.length > 0) scanConfig.rules = rules;
+  const { scanConfig, format, exitCode, target, isUrl } = parsed;
 
   try {
     const report = await scan(scanConfig);
