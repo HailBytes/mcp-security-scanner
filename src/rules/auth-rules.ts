@@ -67,7 +67,18 @@ export const authRules: Rule[] = [
       const url = config.transport?.url ?? config.serverUrl;
       const isTls = config.transport?.tls;
 
-      if (url && (url.startsWith('http://') || (!isTls && !url.startsWith('https://')))) {
+      // WebSocket transports are out of scope for this rule: ws:// is reported by
+      // INSECURE_TRANSPORT, and wss:// is already TLS-encrypted. Without this guard a
+      // secure wss:// endpoint is wrongly flagged as "plain HTTP" because it neither
+      // starts with https:// nor sets transport.tls.
+      const isWebSocket =
+        !!url && (url.startsWith('ws://') || url.startsWith('wss://'));
+
+      if (
+        url &&
+        !isWebSocket &&
+        (url.startsWith('http://') || (!isTls && !url.startsWith('https://')))
+      ) {
         return [
           {
             ruleId: RuleId.MISSING_TLS,
