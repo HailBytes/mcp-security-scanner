@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Jest test suite now runs again. The `import.meta.url` usage in `src/sarif.ts` could not be compiled by ts-jest's CommonJS transform, which silently broke 3 of 4 test suites (only `scorer.test.ts` ran). Jest now runs in ES module mode (`ts-jest/presets/default-esm`), matching the package's actual ESM runtime, and CI is green again.
+- Corrected a stale assertion in `sarif.test.ts` that hardcoded the SARIF tool version as `0.0.1`; it now validates against the real `package.json` version.
+
 ### Added
+- `--output=` is now accepted as an alias for `--format=` in the CLI, so the documented quick-start examples (e.g. `--output=sarif`) work as written.
 - Initial scaffold: project structure, TypeScript configuration, and package metadata.
 - Added real scanner implementation with 8 security rules, CLI, Jest test suite, ESLint config.
   - Auth rules: NO_AUTH, WEAK_API_KEY, MISSING_TLS
