@@ -38,7 +38,7 @@ npx @hailbytes/mcp-security-scanner ./mcp-config.json
 npx @hailbytes/mcp-security-scanner https://my-mcp-server.example.com
 
 # Output SARIF for GitHub Code Scanning + fail on findings
-npx @hailbytes/mcp-security-scanner ./config.json --output=sarif --exit-code
+npx @hailbytes/mcp-security-scanner ./config.json --format=sarif --exit-code
 ```
 
 ### Programmatic
@@ -49,8 +49,8 @@ import { scan } from "@hailbytes/mcp-security-scanner";
 const report = await scan({ configPath: "./mcp-config.json" });
 
 console.log(report.findings);  // Finding[] — individual security issues
-console.log(report.score);     // 0–100 risk score (lower = riskier)
-console.log(report.passed);    // boolean — use as CI gate
+console.log(report.score);     // 0–100 risk score (higher = riskier)
+console.log(report.passed);    // boolean — true when score < 50 and no critical findings; use as CI gate
 ```
 
 ---
