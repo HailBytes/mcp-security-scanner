@@ -1,0 +1,114 @@
+/**
+ * Pure CLI argument parsing for mcp-security-scanner.
+ *
+ * Kept free of side effects (no process.exit / console calls) so it can be
+ * unit-tested directly, separate from the executable entry point in cli.ts.
+ */
+
+import { ScanConfig, Severity, RuleId } from './types.js';
+
+export type OutputFormat = 'json' | 'sarif' | 'table';
+
+/**
+ * Result of parsing CLI arguments.
+ *
+ * - `run`   — arguments are valid; proceed with a scan.
+ * - `help`  — show usage and exit with `exitCode`.
+ * - `error` — invalid arguments; print `message` to stderr and exit with `exitCode`.
+ */
+export type CliParseResult =
+  | {
+      kind: 'run';
+      target: string;
+      isUrl: boolean;
+      format: OutputFormat;
+      exitCode: boolean;
+      scanConfig: ScanConfig;
+    }
+  | { kind: 'help'; exitCode: number }
+  | { kind: 'error'; message: string; exitCode: number };
+
+const SEVERITY_BY_NAME: Record<string, Severity> = {
+  critical: Severity.CRITICAL,
+  high: Severity.HIGH,
+  medium: Severity.MEDIUM,
+  low: Severity.LOW,
+  info: Severity.INFO,
+};
+
+/**
+ * Parse raw CLI arguments into a structured, side-effect-free result.
+ */
+export function parseArgs(args: string[]): CliParseResult {
+  if (args.length === 0) {
+    return { kind: 'help', exitCode: 2 };
+  }
+  if (args.includes('--help') || args.includes('-h')) {
+    return { kind: 'help', exitCode: 0 };
+  }
+
+  let format: OutputFormat = 'json';
+  let exitCode = false;
+  let failOn: Severity | undefined;
+  const rules: RuleId[] = [];
+  let target: string | undefined;
+
+  for (const arg of args) {
+    // `--output` is a documented alias for `--format`.
+    if (arg.startsWith('--format=') || arg.startsWith('--output=')) {
+      const val = arg.slice(arg.indexOf('=') + 1);
+      if (val === 'json' || val === 'sarif' || val === 'table') {
+        format = val;
+      } else {
+        return {
+          kind: 'error',
+          message: `Error: Unknown format "${val}". Expected json, sarif, or table.`,
+          exitCode: 2,
+        };
+      }
+    } else if (arg === '--exit-code') {
+      exitCode = true;
+    } else if (arg.startsWith('--fail-on=')) {
+      const val = arg.slice('--fail-on='.length).toLowerCase();
+      if (val in SEVERITY_BY_NAME) {
+        failOn = SEVERITY_BY_NAME[val];
+      } else {
+        return {
+          kind: 'error',
+          message: `Error: Unknown severity "${val}". Expected critical, high, medium, low, or info.`,
+          exitCode: 2,
+        };
+      }
+    } else if (arg.startsWith('--rule=')) {
+      rules.push(arg.slice('--rule='.length) as RuleId);
+    } else if (!arg.startsWith('--')) {
+      target = arg;
+    } else {
+      return {
+        kind: 'error',
+        message: `Error: Unknown flag "${arg}". Use --help to see available options.`,
+        exitCode: 2,
+      };
+    }
+  }
+
+  if (!target) {
+    return {
+      kind: 'error',
+      message: 'Error: No config path or URL provided.',
+      exitCode: 2,
+    };
+  }
+
+  const isUrl =
+    target.startsWith('http://') ||
+    target.startsWith('https://') ||
+    target.startsWith('ws://') ||
+    target.startsWith('wss://');
+
+  const scanConfig: ScanConfig = isUrl ? { serverUrl: target } : { configPath: target };
+  if (failOn !== undefined) scanConfig.failOn = failOn;
+  if (rules.length > 0) scanConfig.rules = rules;
+
+  return { kind: 'run', target, isUrl, format, exitCode, scanConfig };
+}
