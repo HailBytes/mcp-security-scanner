@@ -1,5 +1,9 @@
+import { createRequire } from 'module';
 import { toSarif } from '../sarif';
 import { SecurityReport, Finding, RuleId, Severity } from '../types';
+
+const require = createRequire(import.meta.url);
+const pkgVersion = require('../../package.json').version as string;
 
 // ─── Helper to build a minimal SecurityReport ─────────────────────────────────
 
@@ -52,9 +56,9 @@ describe('toSarif()', () => {
     expect(sarif.runs[0].tool.driver.name).toBe('@hailbytes/mcp-security-scanner');
   });
 
-  it('run.tool.driver.version is "0.0.1"', () => {
+  it('run.tool.driver.version matches the package version', () => {
     const sarif = toSarif(makeReport());
-    expect(sarif.runs[0].tool.driver.version).toBe('0.0.1');
+    expect(sarif.runs[0].tool.driver.version).toBe(pkgVersion);
   });
 
   it('empty findings → results: []', () => {
