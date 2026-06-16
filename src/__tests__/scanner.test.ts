@@ -62,6 +62,44 @@ describe('NO_AUTH rule', () => {
     const findings = runAuthRule(RuleId.NO_AUTH, config);
     expect(findings).toHaveLength(1);
   });
+
+  it('fires when auth.type explicitly disables auth ("none")', () => {
+    const config: ParsedMcpConfig = {
+      serverUrl: 'https://example.com',
+      transport: { url: 'https://example.com', tls: true, auth: { type: 'none' } },
+    };
+    const findings = runAuthRule(RuleId.NO_AUTH, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].severity).toBe(Severity.CRITICAL);
+    expect(findings[0].evidence).toContain('none');
+  });
+
+  it.each(['none', 'None', 'NONE', ' disabled ', 'off', 'false', 'anonymous'])(
+    'fires when auth.type is the disabled value "%s"',
+    (type) => {
+      const config: ParsedMcpConfig = {
+        transport: { auth: { type } },
+      };
+      const findings = runAuthRule(RuleId.NO_AUTH, config);
+      expect(findings).toHaveLength(1);
+    }
+  );
+
+  it('does NOT fire for a meaningful auth.type (e.g. "bearer")', () => {
+    const config: ParsedMcpConfig = {
+      transport: { auth: { type: 'bearer' } },
+    };
+    const findings = runAuthRule(RuleId.NO_AUTH, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('does NOT fire when a credential is present even if type says "none"', () => {
+    const config: ParsedMcpConfig = {
+      transport: { auth: { type: 'none', token: 'a'.repeat(40) } },
+    };
+    const findings = runAuthRule(RuleId.NO_AUTH, config);
+    expect(findings).toHaveLength(0);
+  });
 });
 
 // ─── WEAK_API_KEY ─────────────────────────────────────────────────────────────

@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- `NO_AUTH`: fixed a CRITICAL false negative where declaring
+  `transport.auth.type: "none"` (or `disabled`/`off`/`false`/`anonymous`)
+  satisfied the auth check, so an explicitly unauthenticated server passed the
+  gate. An auth `type` now only counts as authentication when it names a real
+  mechanism; placeholder/disabled values are treated as no auth.
 - Restored the test suite / green CI: `import.meta.url` in `src/sarif.ts` could
   not compile under the Jest `module: CommonJS` transform, so the `sarif` and
   `scanner` test suites silently failed to run (and the test gate had been

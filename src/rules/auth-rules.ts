@@ -2,16 +2,26 @@ import { Finding, RuleId, Severity } from '../types.js';
 import { ParsedMcpConfig } from '../parser.js';
 import { Rule } from './index.js';
 
+/**
+ * Auth `type` values that explicitly mean "no authentication". A config that
+ * declares one of these is unauthenticated, even though the `auth` block exists.
+ */
+const DISABLED_AUTH_TYPES = new Set(['none', 'disabled', 'off', 'false', 'anonymous']);
+
 export const authRules: Rule[] = [
   {
     id: RuleId.NO_AUTH,
     severity: Severity.CRITICAL,
     title: 'No Authentication Configured',
     check(config: ParsedMcpConfig): Finding[] {
-      const hasAuth = config.transport?.auth &&
-        (config.transport.auth.apiKey ||
-         config.transport.auth.token ||
-         config.transport.auth.type);
+      const auth = config.transport?.auth;
+      // A real credential always counts as auth.
+      const hasCredential = Boolean(auth?.apiKey || auth?.token);
+      // An auth `type` only counts when it names a real mechanism — values like
+      // "none" or "disabled" explicitly opt out of authentication.
+      const type = auth?.type?.trim().toLowerCase();
+      const hasMeaningfulType = Boolean(type) && !DISABLED_AUTH_TYPES.has(type as string);
+      const hasAuth = hasCredential || hasMeaningfulType;
 
       if (!hasAuth) {
         return [
@@ -22,6 +32,9 @@ export const authRules: Rule[] = [
             description:
               'The MCP server transport has no authentication configured. ' +
               'Any client can connect and invoke tools without credentials.',
+            evidence: hasMeaningfulType === false && Boolean(type)
+              ? `transport.auth.type: "${auth?.type}" (authentication explicitly disabled)`
+              : 'transport.auth: absent',
             remediation:
               'Configure authentication in transport.auth (e.g., apiKey, bearer token, or mTLS).',
             docsUrl: 'https://hailbytes.com/mcp/docs/rules/NO_AUTH',
