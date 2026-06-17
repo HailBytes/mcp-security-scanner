@@ -16,7 +16,7 @@
 
 import { scan } from './scanner.js';
 import { toSarif } from './sarif.js';
-import { Severity, Finding } from './types.js';
+import { Severity, Finding, RuleId } from './types.js';
 import { parseArgs } from './args.js';
 
 const SEVERITY_ORDER: Record<string, number> = {
@@ -38,6 +38,9 @@ function printHelp(): void {
   console.log('                              Force fail when any finding meets this severity');
   console.log('  --rule=RULE_ID              Run only the specified rule (repeatable)');
   console.log('  --help, -h                  Show this help message');
+  console.log('');
+  console.log('Valid rule IDs:');
+  console.log(`  ${Object.values(RuleId).join(', ')}`);
   console.log('');
   console.log('Examples:');
   console.log('  mcp-security-scanner ./mcp-server.json');
