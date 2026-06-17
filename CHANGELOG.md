@@ -61,4 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `examples/minimal-config.json` — bare minimum valid config with just a `serverUrl`
 - Expanded test suite to 70 tests (added `sarif.test.ts` and new cases in `scanner.test.ts`)
 
+### Fixed
+- `EXPOSED_SECRETS` no longer misses hardcoded passwords in structured configs. `extractStrings` (`src/parser.ts`) collected string values in isolation, so the key-aware password pattern (`password: <value>`) could never match a JSON/YAML config — a `"password": "..."` field was silently ignored. String values are now extracted with their key context (`"key: value"`), so key-dependent patterns fire while token-shaped patterns (`sk-`, `ghp_`, `AKIA`) continue to match. Added `src/__tests__/parser.test.ts` covering this regression.
+
 [Unreleased]: https://github.com/HailBytes/mcp-security-scanner/compare/HEAD...HEAD

@@ -123,7 +123,16 @@ function parseSimpleYaml(content: string): Record<string, unknown> {
 }
 
 /**
- * Recursively extract all string values from a parsed object.
+ * Recursively extract all string values from a parsed object for secret scanning.
+ *
+ * For an object's string value we push a reconstructed `"key: value"` form
+ * rather than the bare value. This preserves the surrounding key context that
+ * patterns like the password detector (`password: <value>`) depend on — without
+ * it, those key-aware patterns can never match a structured JSON/YAML config,
+ * because the value ("hunter2") is extracted in isolation from its "password"
+ * key. Token-shaped patterns (`sk-...`, `ghp_...`, `AKIA...`) are unanchored and
+ * still match inside the `"key: value"` form. Strings inside arrays (which have
+ * no key context) are pushed bare.
  */
 function extractStrings(value: unknown, result: string[] = []): string[] {
   if (typeof value === 'string') {
@@ -131,8 +140,12 @@ function extractStrings(value: unknown, result: string[] = []): string[] {
   } else if (Array.isArray(value)) {
     for (const item of value) extractStrings(item, result);
   } else if (value !== null && typeof value === 'object') {
-    for (const v of Object.values(value as Record<string, unknown>)) {
-      extractStrings(v, result);
+    for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof v === 'string') {
+        result.push(`${key}: ${v}`);
+      } else {
+        extractStrings(v, result);
+      }
     }
   }
   return result;
