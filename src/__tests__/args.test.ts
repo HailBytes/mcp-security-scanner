@@ -78,6 +78,14 @@ describe('parseArgs()', () => {
     });
   });
 
+  // Regression for #11: a typo'd rule ID must fail loudly, not silently filter
+  // the rule set to nothing and report a passing (false-negative) scan.
+  it('rejects an unknown --rule value with exit code 2', () => {
+    const result = parseArgs(['--rule=NOAUTH', './mcp.json']);
+    expect(result).toMatchObject({ kind: 'error', exitCode: 2 });
+    expect((result as { message: string }).message).toContain('NOAUTH');
+  });
+
   it('detects URL targets and routes them to serverUrl', () => {
     for (const url of [
       'http://x.example.com',

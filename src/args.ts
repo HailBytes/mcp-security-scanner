@@ -36,6 +36,10 @@ const SEVERITY_BY_NAME: Record<string, Severity> = {
   info: Severity.INFO,
 };
 
+/** Valid rule IDs, used to reject typo'd `--rule` values rather than silently
+ * filtering the rule set down to nothing (a false "PASSED" security gate). */
+const VALID_RULE_IDS = new Set<string>(Object.values(RuleId));
+
 /**
  * Parse raw CLI arguments into a structured, side-effect-free result.
  */
@@ -80,7 +84,17 @@ export function parseArgs(args: string[]): CliParseResult {
         };
       }
     } else if (arg.startsWith('--rule=')) {
-      rules.push(arg.slice('--rule='.length) as RuleId);
+      const val = arg.slice('--rule='.length);
+      if (!VALID_RULE_IDS.has(val)) {
+        return {
+          kind: 'error',
+          message:
+            `Error: Unknown rule "${val}". Valid rule IDs: ` +
+            `${Object.values(RuleId).join(', ')}.`,
+          exitCode: 2,
+        };
+      }
+      rules.push(val as RuleId);
     } else if (!arg.startsWith('--')) {
       target = arg;
     } else {
