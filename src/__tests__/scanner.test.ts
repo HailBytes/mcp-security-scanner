@@ -150,6 +150,27 @@ describe('MISSING_TLS rule', () => {
     const findings = runAuthRule(RuleId.MISSING_TLS, config);
     expect(findings).toHaveLength(0);
   });
+
+  it('does not fire for a secure wss:// URL (INSECURE_TRANSPORT owns WebSocket scope)', () => {
+    // A wss:// endpoint is TLS-encrypted, but parseConfig leaves transport.tls
+    // false for non-https schemes. Without the WebSocket guard this would be a
+    // "plain HTTP" false positive on a perfectly secure server.
+    const config: ParsedMcpConfig = {
+      serverUrl: 'wss://secure.example.com/mcp',
+      transport: { url: 'wss://secure.example.com/mcp', tls: false },
+    };
+    const findings = runAuthRule(RuleId.MISSING_TLS, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('does not fire for a ws:// URL (reported by INSECURE_TRANSPORT instead)', () => {
+    const config: ParsedMcpConfig = {
+      serverUrl: 'ws://example.com/mcp',
+      transport: { url: 'ws://example.com/mcp', tls: false },
+    };
+    const findings = runAuthRule(RuleId.MISSING_TLS, config);
+    expect(findings).toHaveLength(0);
+  });
 });
 
 // ─── WILDCARD_CORS ────────────────────────────────────────────────────────────
