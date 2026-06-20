@@ -2,12 +2,27 @@ import { Finding, RuleId, Severity } from '../types.js';
 import { ParsedMcpConfig } from '../parser.js';
 import { Rule } from './index.js';
 
-const SECRET_PATTERNS: RegExp[] = [
-  /sk-[a-zA-Z0-9]{20,}/i,           // OpenAI API key
-  /ghp_[a-zA-Z0-9]{36}/i,            // GitHub PAT
-  /AKIA[0-9A-Z]{16}/i,               // AWS access key
-  /[Pp]assword\s*[=:]\s*\S{8,}/,     // Password assignment
+const SECRET_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
+  { label: 'OpenAI API key', pattern: /sk-[a-zA-Z0-9]{20,}/i },
+  { label: 'GitHub personal access token', pattern: /ghp_[a-zA-Z0-9]{36}/i },
+  { label: 'AWS access key ID', pattern: /AKIA[0-9A-Z]{16}/i },
+  { label: 'hardcoded password', pattern: /[Pp]assword\s*[=:]\s*\S{8,}/ },
 ];
+
+/**
+ * Produce a non-reversible preview of a matched secret for use in finding
+ * evidence. Scan reports are routinely written to CI logs, SARIF artifacts, and
+ * GitHub Code Scanning — surfaces that are often more visible and longer-lived
+ * than the config file itself. Echoing the raw secret there would re-expose the
+ * very credential the rule is asking the user to rotate. We reveal only the
+ * leading characters (which for every pattern above are a structural prefix such
+ * as `sk-`, `ghp_`, `AKIA`, or the word `password`, not entropy) plus the total
+ * length, which is enough to locate the value without reproducing it.
+ */
+function maskSecret(value: string): string {
+  const visible = value.slice(0, Math.min(4, value.length));
+  return `${visible}…[redacted, ${value.length} chars]`;
+}
 
 export const runtimeRules: Rule[] = [
   {
@@ -99,9 +114,10 @@ export const runtimeRules: Rule[] = [
       const matched: string[] = [];
 
       for (const s of rawStrings) {
-        for (const pattern of SECRET_PATTERNS) {
+        for (const { label, pattern } of SECRET_PATTERNS) {
           if (pattern.test(s)) {
-            matched.push(s.length > 60 ? s.slice(0, 57) + '...' : s);
+            // Never echo the raw secret into the report — only a masked preview.
+            matched.push(`${label} (${maskSecret(s)})`);
             break;
           }
         }
@@ -117,7 +133,7 @@ export const runtimeRules: Rule[] = [
               'The configuration file appears to contain one or more hardcoded secrets ' +
               '(API keys, tokens, or passwords). Secrets committed to config files can be ' +
               'extracted by anyone with access to the file.',
-            evidence: `Matched value(s): ${matched.slice(0, 3).join('; ')}`,
+            evidence: `Detected ${matched.length} likely secret(s): ${matched.slice(0, 3).join('; ')}`,
             remediation:
               'Remove secrets from configuration files. Use environment variables, a secrets manager ' +
               '(e.g., AWS Secrets Manager, HashiCorp Vault), or a .env file excluded from version control.',

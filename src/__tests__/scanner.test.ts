@@ -435,6 +435,40 @@ describe('INSECURE_TRANSPORT rule', () => {
   });
 });
 
+// ─── EXPOSED_SECRETS rule ─────────────────────────────────────────────────────
+
+describe('EXPOSED_SECRETS rule', () => {
+  const OPENAI_KEY = 'sk-abcdefghijklmnopqrstuvwxyz1234567890ABCD';
+
+  it('fires when a secret-shaped value is present', () => {
+    const config: ParsedMcpConfig = { rawStrings: [OPENAI_KEY] };
+    const findings = runRuntimeRule(RuleId.EXPOSED_SECRETS, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].ruleId).toBe(RuleId.EXPOSED_SECRETS);
+    expect(findings[0].severity).toBe(Severity.CRITICAL);
+  });
+
+  it('does NOT echo the raw secret into the finding evidence', () => {
+    const config: ParsedMcpConfig = { rawStrings: [OPENAI_KEY] };
+    const findings = runRuntimeRule(RuleId.EXPOSED_SECRETS, config);
+    const evidence = findings[0].evidence ?? '';
+    // The whole point of the rule is to get the secret rotated; reports are
+    // routinely persisted to CI logs / SARIF, so the raw value must not appear.
+    expect(evidence).not.toContain(OPENAI_KEY);
+    expect(evidence).toContain('redacted');
+    // A short, non-sensitive prefix and the length are still surfaced so the
+    // user can locate the offending value.
+    expect(evidence).toContain('OpenAI API key');
+    expect(evidence).toContain(`${OPENAI_KEY.length} chars`);
+  });
+
+  it('does not fire on a clean config', () => {
+    const config: ParsedMcpConfig = { rawStrings: ['bearer', 'https://app.example.com'] };
+    const findings = runRuntimeRule(RuleId.EXPOSED_SECRETS, config);
+    expect(findings).toHaveLength(0);
+  });
+});
+
 // ─── failOn behaviour ─────────────────────────────────────────────────────────
 
 describe('failOn config', () => {
