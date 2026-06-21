@@ -3,10 +3,27 @@ import { ParsedMcpConfig } from '../parser.js';
 import { Rule } from './index.js';
 
 const SECRET_PATTERNS: RegExp[] = [
-  /sk-[a-zA-Z0-9]{20,}/i,           // OpenAI API key
-  /ghp_[a-zA-Z0-9]{36}/i,            // GitHub PAT
-  /AKIA[0-9A-Z]{16}/i,               // AWS access key
-  /[Pp]assword\s*[=:]\s*\S{8,}/,     // Password assignment
+  // OpenAI / Anthropic keys. Modern keys carry a prefix and may contain
+  // hyphens/underscores in the body: project (sk-proj-), service account
+  // (sk-svcacct-), admin (sk-admin-), and Anthropic (sk-ant-) keys.
+  /sk-(?:proj|svcacct|admin|ant)-[A-Za-z0-9_-]{20,}/i,
+  // Legacy unprefixed OpenAI keys (sk- followed by a long alphanumeric run).
+  /sk-[A-Za-z0-9]{32,}/i,
+  // GitHub tokens: PAT (ghp_), OAuth (gho_), user-to-server (ghu_),
+  // server-to-server (ghs_), and refresh (ghr_) tokens.
+  /gh[pousr]_[A-Za-z0-9]{36,}/,
+  // GitHub fine-grained personal access tokens.
+  /github_pat_[A-Za-z0-9_]{22,}/,
+  // AWS access key ID.
+  /AKIA[0-9A-Z]{16}/,
+  // Google API key.
+  /AIza[0-9A-Za-z_-]{35}/,
+  // Slack tokens (bot/user/app/refresh).
+  /xox[baprs]-[0-9A-Za-z-]{10,}/,
+  // Stripe live secret / restricted keys.
+  /(?:sk|rk)_live_[0-9A-Za-z]{16,}/,
+  // Password assignment.
+  /[Pp]assword\s*[=:]\s*\S{8,}/,
 ];
 
 export const runtimeRules: Rule[] = [
