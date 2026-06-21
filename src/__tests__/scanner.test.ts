@@ -435,6 +435,59 @@ describe('INSECURE_TRANSPORT rule', () => {
   });
 });
 
+// ─── EXPOSED_SECRETS rule ─────────────────────────────────────────────────────
+
+describe('EXPOSED_SECRETS rule', () => {
+  // Synthetic fixtures: each value is assembled from its prefix plus a filler
+  // body so that no contiguous, real-looking credential literal ever appears in
+  // this source file (which would otherwise trip secret-scanning push
+  // protection). The filler still satisfies each pattern's character class and
+  // length requirement.
+  const body = (n: number) => 'a'.repeat(n);
+  const secrets: Array<[string, string]> = [
+    ['legacy OpenAI key', 'sk-' + body(40)],
+    ['OpenAI project key', 'sk-' + 'proj-' + body(40)],
+    ['OpenAI service-account key', 'sk-' + 'svcacct-' + body(40)],
+    ['Anthropic key', 'sk-' + 'ant-' + body(40)],
+    ['GitHub classic PAT', 'ghp' + '_' + body(36)],
+    ['GitHub OAuth token', 'gho' + '_' + body(36)],
+    ['GitHub fine-grained PAT', 'github' + '_pat_' + body(82)],
+    ['AWS access key id', 'AKIA' + 'A'.repeat(16)],
+    ['Google API key', 'AIza' + body(35)],
+    ['Slack bot token', 'xoxb' + '-1234567890-' + body(16)],
+    ['Stripe live key', 'sk' + '_live_' + body(24)],
+    ['password assignment', 'password=' + body(14)],
+  ];
+
+  it.each(secrets)('fires for a %s', (_label, value) => {
+    const config: ParsedMcpConfig = { rawStrings: [value] };
+    const findings = runRuntimeRule(RuleId.EXPOSED_SECRETS, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].ruleId).toBe(RuleId.EXPOSED_SECRETS);
+    expect(findings[0].severity).toBe(Severity.CRITICAL);
+  });
+
+  it('does not fire for benign config strings', () => {
+    const config: ParsedMcpConfig = {
+      rawStrings: [
+        'https://secure-mcp.example.com',
+        'bearer',
+        'filesystem:read',
+        // JWT-style bearer token (assembled from parts) — not a known secret
+        // format, must not trigger a false positive.
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9' + '.' + 'c2VjcmV0LXRva2VuLWZvcnR5LXR3by1jaGFycw',
+      ],
+    };
+    const findings = runRuntimeRule(RuleId.EXPOSED_SECRETS, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('does not fire when rawStrings is absent', () => {
+    const findings = runRuntimeRule(RuleId.EXPOSED_SECRETS, {});
+    expect(findings).toHaveLength(0);
+  });
+});
+
 // ─── failOn behaviour ─────────────────────────────────────────────────────────
 
 describe('failOn config', () => {
