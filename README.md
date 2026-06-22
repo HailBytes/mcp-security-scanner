@@ -34,12 +34,20 @@ npx @hailbytes/mcp-security-scanner ./mcp-config.json
 # Scan a local config file
 npx @hailbytes/mcp-security-scanner ./mcp-config.json
 
-# Scan a running MCP server endpoint
+# Scan a server endpoint URL (transport checks only — see note below)
 npx @hailbytes/mcp-security-scanner https://my-mcp-server.example.com
 
 # Output SARIF for GitHub Code Scanning + fail on findings
 npx @hailbytes/mcp-security-scanner ./config.json --format=sarif --exit-code
 ```
+
+> **URL mode vs. config-file mode.** When the target is a **URL**, the scanner
+> does not connect to or introspect the live server — it evaluates only the
+> transport security derivable from the URL itself (`MISSING_TLS` for `http://`,
+> `INSECURE_TRANSPORT` for `ws://`). It emits a `URL_SCAN_LIMITED` info note to
+> make this explicit. Authentication, rate limiting, CORS, tool, and secret
+> rules require a **config file** (`.json`/`.yaml`) to evaluate. Point the
+> scanner at your MCP server configuration to run the full rule set.
 
 ### Programmatic
 

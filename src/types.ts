@@ -27,6 +27,12 @@ export enum RuleId {
   DEBUG_MODE_ENABLED = 'DEBUG_MODE_ENABLED',
   EXPOSED_SECRETS = 'EXPOSED_SECRETS',
   UNRESTRICTED_FILE_ACCESS = 'UNRESTRICTED_FILE_ACCESS',
+  /**
+   * Informational note emitted when scanning a live URL/endpoint. URL mode can
+   * only evaluate transport security from the URL itself; the full rule set
+   * requires a config file. Not a vulnerability — INFO severity, never fails a gate.
+   */
+  URL_SCAN_LIMITED = 'URL_SCAN_LIMITED',
 }
 
 /**

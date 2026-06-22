@@ -16,8 +16,13 @@
 
 import { scan } from './scanner.js';
 import { toSarif } from './sarif.js';
-import { Severity, Finding } from './types.js';
+import { Severity, Finding, RuleId } from './types.js';
 import { parseArgs } from './args.js';
+
+/** Selectable rule IDs (excludes the URL_SCAN_LIMITED informational note). */
+const VALID_RULE_IDS = Object.values(RuleId).filter(
+  (id) => id !== RuleId.URL_SCAN_LIMITED
+);
 
 const SEVERITY_ORDER: Record<string, number> = {
   critical: 4,
@@ -38,6 +43,11 @@ function printHelp(): void {
   console.log('                              Force fail when any finding meets this severity');
   console.log('  --rule=RULE_ID              Run only the specified rule (repeatable)');
   console.log('  --help, -h                  Show this help message');
+  console.log('');
+  console.log('Valid rule IDs:');
+  for (const id of VALID_RULE_IDS) {
+    console.log(`  ${id}`);
+  }
   console.log('');
   console.log('Examples:');
   console.log('  mcp-security-scanner ./mcp-server.json');

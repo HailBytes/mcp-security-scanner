@@ -37,12 +37,16 @@ Most MCP servers I've audited in the last few months had the same three issues:
 # Scan a local config
 npx @hailbytes/mcp-security-scanner ./mcp-config.json
 
-# Scan a live endpoint
+# Scan an endpoint URL (transport-only: TLS / WebSocket scheme)
 npx @hailbytes/mcp-security-scanner https://my-mcp-server.example.com
 
 # SARIF output + fail the build
 npx @hailbytes/mcp-security-scanner ./config.json --format=sarif --exit-code
 ```
+
+> URL mode checks only transport security derivable from the URL (it doesn't
+> introspect the live server). Point it at a config file (`.json`/`.yaml`) to
+> run the full rule set — auth, rate limiting, CORS, tool, and secret checks.
 
 ## Programmatic
 

@@ -34,92 +34,177 @@ export interface ParsedMcpConfig {
   rawStrings?: string[];
 }
 
+/** A non-blank YAML line, with its leading-space indentation measured. */
+interface YamlLine {
+  indent: number;
+  text: string;
+}
+
 /**
- * Parse a minimal YAML config into a flat key-value object.
- * Supports simple "key: value" lines and basic nested sections.
+ * Strip a YAML comment from a line. A `#` only starts a comment when it is at
+ * the start of the (trimmed) line or preceded by whitespace, so values such as
+ * URLs (`https://…`) are left intact.
  */
-function parseSimpleYaml(content: string): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  const lines = content.split('\n');
-  let currentSection: string | null = null;
-  let currentSectionObj: Record<string, unknown> = {};
-  let currentList: string[] | null = null;
-  let currentListKey: string | null = null;
+function stripYamlComment(line: string): string {
+  if (line.trimStart().startsWith('#')) return '';
+  const idx = line.search(/\s#/);
+  return idx === -1 ? line : line.slice(0, idx);
+}
 
-  for (const line of lines) {
-    const trimmed = line.trim();
+/**
+ * Find the index of the key/value separator colon in a mapping entry. Per YAML,
+ * a colon only separates a key from its value when it is followed by whitespace
+ * or ends the line — so `url: wss://x` splits at the first colon, while a plain
+ * scalar like `shell:exec` or `filesystem:*` has no separator (returns -1).
+ */
+function findMappingColon(text: string): number {
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === ':' && (i === text.length - 1 || text[i + 1] === ' ')) {
+      return i;
+    }
+  }
+  return -1;
+}
 
-    // Skip comments and blank lines
-    if (!trimmed || trimmed.startsWith('#')) continue;
+/** Coerce a scalar YAML token into a boolean, number, or (unquoted) string. */
+function parseYamlScalar(value: string): unknown {
+  if (value === '' || value === '~' || value === 'null') return null;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    return value.slice(1, -1);
+  }
+  if (!isNaN(Number(value))) return Number(value);
+  return value;
+}
 
-    // Detect indented list items
-    if (trimmed.startsWith('- ') && currentListKey) {
-      if (!currentList) {
-        currentList = [];
-        if (currentSection) {
-          (currentSectionObj as Record<string, unknown>)[currentListKey] = currentList;
-        } else {
-          result[currentListKey] = currentList;
-        }
-      }
-      currentList.push(trimmed.slice(2).trim());
+/**
+ * Parse a mapping block whose entries all sit at exactly `indent` columns,
+ * starting at line `start`. Returns the parsed object and the index of the
+ * first line that no longer belongs to the block.
+ */
+function parseYamlMap(
+  lines: YamlLine[],
+  start: number,
+  indent: number
+): [Record<string, unknown>, number] {
+  const obj: Record<string, unknown> = {};
+  let i = start;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.indent < indent) break; // dedent → end of this block
+    if (line.indent > indent || line.text.startsWith('- ')) {
+      // Unexpected deeper content or a sequence at this level: stop and let the
+      // caller handle it rather than mis-attributing it to a key.
+      break;
+    }
+
+    const colon = findMappingColon(line.text);
+    if (colon === -1) break; // not a mapping entry
+
+    const key = line.text.slice(0, colon).trim();
+    const rest = line.text.slice(colon + 1).trim();
+
+    if (rest !== '') {
+      obj[key] = parseYamlScalar(rest);
+      i += 1;
       continue;
     }
 
-    // Detect section header (key with no value, indented content follows)
-    const colonIdx = trimmed.indexOf(':');
-    if (colonIdx === -1) continue;
-
-    const key = trimmed.slice(0, colonIdx).trim();
-    const value = trimmed.slice(colonIdx + 1).trim();
-
-    // Detect indented key (part of a section)
-    const isIndented = line.startsWith('  ') || line.startsWith('\t');
-
-    if (!value) {
-      // Section header
-      if (currentSection && currentSectionObj) {
-        result[currentSection] = currentSectionObj;
+    // Empty value → a nested block (map or sequence) follows, if anything does.
+    const childStart = i + 1;
+    if (childStart < lines.length) {
+      const child = lines[childStart];
+      if (child.text.startsWith('- ') && child.indent >= indent) {
+        const [seq, next] = parseYamlSequence(lines, childStart, child.indent);
+        obj[key] = seq;
+        i = next;
+        continue;
       }
-      if (!isIndented) {
-        currentSection = key;
-        currentSectionObj = {};
-        currentList = null;
-        currentListKey = key;
-      }
-    } else {
-      currentList = null;
-      currentListKey = key;
-
-      // Parse booleans and numbers
-      let parsedValue: unknown = value;
-      if (value === 'true') parsedValue = true;
-      else if (value === 'false') parsedValue = false;
-      else if (!isNaN(Number(value)) && value !== '') parsedValue = Number(value);
-      else if ((value.startsWith('"') && value.endsWith('"')) ||
-               (value.startsWith("'") && value.endsWith("'"))) {
-        parsedValue = value.slice(1, -1);
-      }
-
-      if (isIndented && currentSection) {
-        currentSectionObj[key] = parsedValue;
-      } else {
-        if (currentSection) {
-          result[currentSection] = currentSectionObj;
-          currentSection = null;
-          currentSectionObj = {};
-        }
-        result[key] = parsedValue;
+      if (child.indent > indent) {
+        const [map, next] = parseYamlMap(lines, childStart, child.indent);
+        obj[key] = map;
+        i = next;
+        continue;
       }
     }
+    obj[key] = null;
+    i = childStart;
   }
 
-  // Flush last section
-  if (currentSection) {
-    result[currentSection] = currentSectionObj;
+  return [obj, i];
+}
+
+/**
+ * Parse a sequence block whose `- ` items sit at exactly `indent` columns.
+ * Handles scalar items (`- shell:exec`) and map items (`- name: foo` plus any
+ * subsequent indented keys).
+ */
+function parseYamlSequence(
+  lines: YamlLine[],
+  start: number,
+  indent: number
+): [unknown[], number] {
+  const arr: unknown[] = [];
+  let i = start;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.indent < indent) break;
+    if (line.indent > indent || !line.text.startsWith('- ')) break;
+
+    const itemText = line.text.slice(2).trim();
+    const colon = itemText === '' ? -1 : findMappingColon(itemText);
+
+    if (colon === -1) {
+      // Scalar list item (or an empty dash with a nested block beneath it).
+      if (itemText === '' && i + 1 < lines.length && lines[i + 1].indent > indent) {
+        const [map, next] = parseYamlMap(lines, i + 1, lines[i + 1].indent);
+        arr.push(map);
+        i = next;
+      } else {
+        arr.push(parseYamlScalar(itemText));
+        i += 1;
+      }
+      continue;
+    }
+
+    // Map item: the inline `key: value` plus any continuation keys indented to
+    // the column just after the "- ". Rewrite the dash line as a plain mapping
+    // entry at that column and let parseYamlMap consume it and its siblings.
+    const contentIndent = indent + 2;
+    lines[i] = { indent: contentIndent, text: itemText };
+    const [map, next] = parseYamlMap(lines, i, contentIndent);
+    arr.push(map);
+    i = next;
   }
 
-  return result;
+  return [arr, i];
+}
+
+/**
+ * Parse a YAML config into a nested key-value object.
+ *
+ * Supports the structures an MCP config actually uses: scalars, nested maps of
+ * arbitrary depth (e.g. `transport.auth.*`), sequences of scalars (e.g.
+ * `permissions:`), and sequences of maps (e.g. `tools:`). Indentation-driven,
+ * with no external dependency.
+ */
+function parseSimpleYaml(content: string): Record<string, unknown> {
+  const lines: YamlLine[] = [];
+  for (const raw of content.split('\n')) {
+    const stripped = stripYamlComment(raw);
+    if (stripped.trim() === '') continue;
+    lines.push({ indent: stripped.length - stripped.trimStart().length, text: stripped.trim() });
+  }
+
+  if (lines.length === 0) return {};
+  const [value] = parseYamlMap(lines, 0, lines[0].indent);
+  return value;
 }
 
 /**
