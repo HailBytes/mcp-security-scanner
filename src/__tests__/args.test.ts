@@ -78,6 +78,22 @@ describe('parseArgs()', () => {
     });
   });
 
+  // Regression for #11: an unknown/typo'd rule must fail loudly (exit 2), not
+  // silently filter the rule set to nothing and report a false "PASSED".
+  it('rejects an unknown --rule value with exit code 2', () => {
+    const result = parseArgs(['--rule=NOAUTH', '--exit-code', './mcp.json']);
+    expect(result).toMatchObject({ kind: 'error', exitCode: 2 });
+    expect((result as { message: string }).message).toContain('Unknown rule "NOAUTH"');
+  });
+
+  it('accepts a valid --rule value', () => {
+    const result = parseArgs(['--rule=NO_AUTH', './mcp.json']);
+    expect(result).toMatchObject({
+      kind: 'run',
+      scanConfig: { rules: [RuleId.NO_AUTH] },
+    });
+  });
+
   it('detects URL targets and routes them to serverUrl', () => {
     for (const url of [
       'http://x.example.com',

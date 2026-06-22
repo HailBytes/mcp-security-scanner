@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- URL/endpoint mode no longer produces false findings (#27). Scanning a URL
+  previously ran every config rule against an effectively empty config, so any
+  endpoint always emitted a CRITICAL `NO_AUTH` and a MEDIUM `MISSING_RATE_LIMIT`
+  and always failed — even for a secure, authenticated server. URL mode now runs
+  only the rules a URL can actually answer (`MISSING_TLS`, `INSECURE_TRANSPORT`)
+  and emits an INFO `URL_SCAN_LIMITED` note explaining that live introspection
+  is not performed and that a config file is required for the full rule set.
+- `WEAK_API_KEY`: now also length-checks `auth.token`, not just `auth.apiKey`
+  (#26). A short (< 32 char) opaque bearer token previously passed the gate even
+  though an identical value in `apiKey` was flagged HIGH. JWT-shaped tokens are
+  exempt (structured, effectively always > 32 chars); finding evidence now names
+  the offending field (`apiKey` vs `token`).
+- YAML configs are now parsed correctly (#19). The previous hand-rolled parser
+  only handled flat scalar keys, silently dropping nested `transport.auth` (a
+  false `NO_AUTH`) and the `tools:` sequence-of-maps (all tool rules skipped). A
+  YAML config and its JSON equivalent now produce identical results. Still
+  zero-dependency — the parser is indentation-driven.
+- `MISSING_TLS`: scoped to the HTTP family so a secure `wss://` transport is no
+  longer flagged "uses plain HTTP", and `ws://` is no longer double-counted
+  (it remains covered by `INSECURE_TRANSPORT`).
+- CLI: `--rule` now rejects unknown/typo'd rule IDs with exit code 2 (#11).
+  Previously an unrecognized rule filtered the rule set to nothing, producing a
+  silent false "PASSED" — a security gate bypassed by a typo. `--help` now lists
+  the valid rule IDs.
 - `NO_AUTH`: fixed a CRITICAL false negative where declaring
   `transport.auth.type: "none"` (or `disabled`/`off`/`false`/`anonymous`)
   satisfied the auth check, so an explicitly unauthenticated server passed the

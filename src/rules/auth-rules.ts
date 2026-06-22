@@ -8,6 +8,11 @@ import { Rule } from './index.js';
  */
 const DISABLED_AUTH_TYPES = new Set(['none', 'disabled', 'off', 'false', 'anonymous']);
 
+/** True when a value looks like a JWT: three non-empty base64url segments. */
+function isJwt(value: string): boolean {
+  return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value);
+}
+
 export const authRules: Rule[] = [
   {
     id: RuleId.NO_AUTH,
@@ -48,27 +53,43 @@ export const authRules: Rule[] = [
   {
     id: RuleId.WEAK_API_KEY,
     severity: Severity.HIGH,
-    title: 'Weak API Key (< 32 characters)',
+    title: 'Weak Credential (< 32 characters)',
     check(config: ParsedMcpConfig): Finding[] {
-      const apiKey = config.transport?.auth?.apiKey;
-      if (typeof apiKey === 'string' && apiKey.length < 32) {
-        return [
-          {
-            ruleId: RuleId.WEAK_API_KEY,
-            severity: Severity.HIGH,
-            title: 'Weak API Key (< 32 characters)',
-            description:
-              `The configured API key is only ${apiKey.length} characters long. ` +
-              'Short keys are vulnerable to brute-force attacks.',
-            evidence: `apiKey length: ${apiKey.length}`,
-            remediation:
-              'Generate a cryptographically random API key of at least 32 characters ' +
-              '(preferably 64+). Use a secrets manager to store it.',
-            docsUrl: 'https://hailbytes.com/mcp/docs/rules/WEAK_API_KEY',
-          },
-        ];
+      const auth = config.transport?.auth;
+      const findings: Finding[] = [];
+
+      // Both `apiKey` and `token` are accepted as credentials by NO_AUTH, so
+      // both must be strength-checked. A short opaque credential of either kind
+      // is equally brute-forceable.
+      const candidates: Array<{ field: 'apiKey' | 'token'; label: string }> = [
+        { field: 'apiKey', label: 'API key' },
+        { field: 'token', label: 'bearer token' },
+      ];
+
+      for (const { field, label } of candidates) {
+        const value = auth?.[field];
+        if (typeof value !== 'string') continue;
+        // Skip JWTs: they are structured (three base64url segments) and
+        // effectively always longer than 32 chars, so length is not meaningful.
+        if (field === 'token' && isJwt(value)) continue;
+        if (value.length >= 32) continue;
+
+        findings.push({
+          ruleId: RuleId.WEAK_API_KEY,
+          severity: Severity.HIGH,
+          title: `Weak ${label === 'API key' ? 'API Key' : 'Bearer Token'} (< 32 characters)`,
+          description:
+            `The configured ${label} is only ${value.length} characters long. ` +
+            'Short credentials are vulnerable to brute-force attacks.',
+          evidence: `${field} length: ${value.length}`,
+          remediation:
+            `Generate a cryptographically random ${label} of at least 32 characters ` +
+            '(preferably 64+). Use a secrets manager to store it.',
+          docsUrl: 'https://hailbytes.com/mcp/docs/rules/WEAK_API_KEY',
+        });
       }
-      return [];
+
+      return findings;
     },
   },
 
@@ -80,7 +101,17 @@ export const authRules: Rule[] = [
       const url = config.transport?.url ?? config.serverUrl;
       const isTls = config.transport?.tls;
 
-      if (url && (url.startsWith('http://') || (!isTls && !url.startsWith('https://')))) {
+      // This rule is specifically about the HTTP family ("Server Uses Plain
+      // HTTP"). WebSocket security is owned by INSECURE_TRANSPORT: ws:// is
+      // flagged there, and wss:// is already TLS-encrypted. Excluding both
+      // avoids a false positive on wss:// and double-counting on ws://.
+      const isWebSocket = url?.startsWith('ws://') || url?.startsWith('wss://');
+
+      if (
+        url &&
+        !isWebSocket &&
+        (url.startsWith('http://') || (!isTls && !url.startsWith('https://')))
+      ) {
         return [
           {
             ruleId: RuleId.MISSING_TLS,

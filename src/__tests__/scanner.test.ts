@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { scan } from '../scanner';
 import { RuleId, Severity } from '../types';
 import { ParsedMcpConfig } from '../parser';
@@ -7,6 +10,15 @@ import { injectionRules } from '../rules/injection-rules';
 import { runtimeRules } from '../rules/runtime-rules';
 import { toSarif } from '../sarif';
 import type { SecurityReport } from '../types';
+
+// Write a config object to a temp file and return its path, so scan() can be
+// exercised through its real file-reading path (configPath mode).
+function writeTempConfig(obj: unknown, ext = '.json'): string {
+  const dir = mkdtempSync(join(tmpdir(), 'mcp-scan-'));
+  const file = join(dir, `config${ext}`);
+  writeFileSync(file, ext === '.json' ? JSON.stringify(obj) : String(obj));
+  return file;
+}
 
 // ─── Helper: run a single rule against a mock ParsedMcpConfig ─────────────────
 
@@ -122,10 +134,53 @@ describe('WEAK_API_KEY rule', () => {
     expect(findings).toHaveLength(0);
   });
 
-  it('does not fire when no api key is set', () => {
-    const config: ParsedMcpConfig = { transport: { auth: { token: 'bearer-token' } } };
+  it('does not fire when no credential is set', () => {
+    const config: ParsedMcpConfig = { transport: { auth: { type: 'bearer' } } };
     const findings = runAuthRule(RuleId.WEAK_API_KEY, config);
     expect(findings).toHaveLength(0);
+  });
+
+  // Regression for #26: a short bearer token must be flagged, just like an
+  // equally short API key. (Previously only apiKey was length-checked.)
+  it('fires for a short bearer token (< 32 chars)', () => {
+    const config: ParsedMcpConfig = {
+      transport: { auth: { type: 'bearer', token: 'short123' } },
+    };
+    const findings = runAuthRule(RuleId.WEAK_API_KEY, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].ruleId).toBe(RuleId.WEAK_API_KEY);
+    expect(findings[0].severity).toBe(Severity.HIGH);
+    // Evidence names the offending field, not a hardcoded "API key".
+    expect(findings[0].evidence).toBe('token length: 8');
+  });
+
+  it('does not fire for a 32+ char token', () => {
+    const config: ParsedMcpConfig = {
+      transport: { auth: { token: 'a'.repeat(40) } },
+    };
+    const findings = runAuthRule(RuleId.WEAK_API_KEY, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  // JWTs are structured and effectively always > 32 chars — no false positive.
+  it('does not fire for a JWT-shaped token', () => {
+    const config: ParsedMcpConfig = {
+      transport: { auth: { type: 'bearer', token: 'aaa.bbb.ccc' } },
+    };
+    const findings = runAuthRule(RuleId.WEAK_API_KEY, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('flags both a weak apiKey and a weak token independently', () => {
+    const config: ParsedMcpConfig = {
+      transport: { auth: { apiKey: 'short', token: 'alsoshort' } },
+    };
+    const findings = runAuthRule(RuleId.WEAK_API_KEY, config);
+    expect(findings).toHaveLength(2);
+    expect(findings.map((f) => f.evidence)).toEqual([
+      'apiKey length: 5',
+      'token length: 9',
+    ]);
   });
 });
 
@@ -146,6 +201,26 @@ describe('MISSING_TLS rule', () => {
     const config: ParsedMcpConfig = {
       serverUrl: 'https://example.com',
       transport: { url: 'https://example.com', tls: true },
+    };
+    const findings = runAuthRule(RuleId.MISSING_TLS, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  // This rule covers the HTTP family only — wss:// is already encrypted and
+  // ws:// is owned by INSECURE_TRANSPORT, so neither should fire here.
+  it('does not fire for a wss:// URL (already TLS-encrypted)', () => {
+    const config: ParsedMcpConfig = {
+      serverUrl: 'wss://example.com',
+      transport: { url: 'wss://example.com', tls: false },
+    };
+    const findings = runAuthRule(RuleId.MISSING_TLS, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('does not fire for a ws:// URL (owned by INSECURE_TRANSPORT)', () => {
+    const config: ParsedMcpConfig = {
+      serverUrl: 'ws://example.com',
+      transport: { url: 'ws://example.com', tls: false },
     };
     const findings = runAuthRule(RuleId.MISSING_TLS, config);
     expect(findings).toHaveLength(0);
@@ -326,14 +401,18 @@ describe('UNSAFE_TOOL_OUTPUT_PATH rule', () => {
 
 describe('scan() integration', () => {
   it('score > 0 when there are findings', async () => {
-    // No auth + http URL will trigger CRITICAL + HIGH
+    // http URL triggers MISSING_TLS (HIGH) in URL mode.
     const report = await scan({ serverUrl: 'http://example.com' });
     expect(report.score).toBeGreaterThan(0);
   });
 
-  it('passed=false when score >= 50 or critical finding exists', async () => {
-    // No auth (CRITICAL) alone triggers passed=false
-    const report = await scan({ serverUrl: 'https://example.com' });
+  it('passed=false when a critical finding exists', async () => {
+    // A config file with no auth triggers NO_AUTH (CRITICAL) → passed=false.
+    const path = writeTempConfig({
+      transport: { url: 'https://example.com', tls: true },
+      rateLimit: { enabled: true },
+    });
+    const report = await scan({ configPath: path });
     expect(report.passed).toBe(false);
     expect(report.summary.critical).toBeGreaterThan(0);
   });
@@ -349,11 +428,60 @@ describe('scan() integration', () => {
   });
 
   it('filters to requested rule IDs only', async () => {
-    const report = await scan({
-      serverUrl: 'http://example.com',
-      rules: [RuleId.MISSING_TLS],
+    const path = writeTempConfig({
+      transport: { url: 'http://example.com', tls: false },
     });
+    const report = await scan({ configPath: path, rules: [RuleId.MISSING_TLS] });
     expect(report.findings.every((f) => f.ruleId === RuleId.MISSING_TLS)).toBe(true);
+    expect(report.findings.length).toBeGreaterThan(0);
+  });
+});
+
+// ─── URL mode (issue #27) ─────────────────────────────────────────────────────
+
+describe('URL mode (live endpoint scan)', () => {
+  function ruleIds(report: SecurityReport): RuleId[] {
+    return report.findings.map((f) => f.ruleId);
+  }
+
+  it('a secure https:// endpoint does not emit NO_AUTH / MISSING_RATE_LIMIT and passes', async () => {
+    const report = await scan({ serverUrl: 'https://secure.example.com' });
+    expect(ruleIds(report)).not.toContain(RuleId.NO_AUTH);
+    expect(ruleIds(report)).not.toContain(RuleId.MISSING_RATE_LIMIT);
+    expect(ruleIds(report)).toContain(RuleId.URL_SCAN_LIMITED);
+    expect(report.passed).toBe(true);
+  });
+
+  it('a secure wss:// endpoint does not emit MISSING_TLS / NO_AUTH and passes', async () => {
+    const report = await scan({ serverUrl: 'wss://secure.example.com' });
+    expect(ruleIds(report)).not.toContain(RuleId.MISSING_TLS);
+    expect(ruleIds(report)).not.toContain(RuleId.NO_AUTH);
+    expect(report.passed).toBe(true);
+  });
+
+  it('http:// still fires MISSING_TLS in URL mode', async () => {
+    const report = await scan({ serverUrl: 'http://insecure.example.com' });
+    expect(ruleIds(report)).toContain(RuleId.MISSING_TLS);
+  });
+
+  it('ws:// fires INSECURE_TRANSPORT (and not MISSING_TLS) in URL mode', async () => {
+    const report = await scan({ serverUrl: 'ws://insecure.example.com' });
+    expect(ruleIds(report)).toContain(RuleId.INSECURE_TRANSPORT);
+    expect(ruleIds(report)).not.toContain(RuleId.MISSING_TLS);
+  });
+
+  it('the URL_SCAN_LIMITED note is INFO severity and never fails the gate', async () => {
+    const report = await scan({ serverUrl: 'https://secure.example.com' });
+    const note = report.findings.find((f) => f.ruleId === RuleId.URL_SCAN_LIMITED);
+    expect(note?.severity).toBe(Severity.INFO);
+  });
+
+  it('config-file mode still runs the full rule set (no URL scoping)', async () => {
+    const path = writeTempConfig({
+      transport: { url: 'https://example.com', tls: true },
+    });
+    const report = await scan({ configPath: path });
+    expect(report.findings.map((f) => f.ruleId)).toContain(RuleId.NO_AUTH);
   });
 });
 
@@ -439,29 +567,31 @@ describe('INSECURE_TRANSPORT rule', () => {
 
 describe('failOn config', () => {
   it('failOn=MEDIUM forces passed=false when a MEDIUM finding exists', async () => {
-    // WILDCARD_CORS is MEDIUM; with auth + https it wouldn't normally fail (score < 50)
+    // A config (with auth, so no critical) whose only issue is a MEDIUM finding
+    // would normally pass (score < 50); failOn=MEDIUM must force a failure.
+    const path = writeTempConfig({
+      transport: { url: 'https://example.com', tls: true, auth: { token: 'a'.repeat(40) } },
+      // No rateLimit → MISSING_RATE_LIMIT (MEDIUM).
+    });
     const report = await scan({
-      configPath: undefined,
-      serverUrl: 'https://example.com',
-      rules: [RuleId.WILDCARD_CORS, RuleId.MISSING_RATE_LIMIT],
+      configPath: path,
+      rules: [RuleId.MISSING_RATE_LIMIT],
       failOn: Severity.MEDIUM,
     });
-    // Both WILDCARD_CORS and MISSING_RATE_LIMIT are MEDIUM — forced to scan them via serverUrl
-    // We know MISSING_RATE_LIMIT always fires with just a serverUrl (no rateLimit config)
-    const hasMedium = report.findings.some((f) => f.severity === Severity.MEDIUM);
-    expect(hasMedium).toBe(true);
+    expect(report.findings.some((f) => f.severity === Severity.MEDIUM)).toBe(true);
     expect(report.passed).toBe(false);
   });
 
   it('failOn=HIGH does NOT force passed=false when only MEDIUM findings exist', async () => {
-    // Scan with MISSING_RATE_LIMIT (MEDIUM) + failOn=HIGH — HIGH threshold not met
+    const path = writeTempConfig({
+      transport: { url: 'https://example.com', tls: true, auth: { token: 'a'.repeat(40) } },
+    });
     const report = await scan({
+      configPath: path,
       rules: [RuleId.MISSING_RATE_LIMIT],
-      serverUrl: 'https://example.com',
       failOn: Severity.HIGH,
     });
-    // MISSING_RATE_LIMIT is MEDIUM — below HIGH failOn threshold
-    // score=8 < 50, no critical, failOn=HIGH not triggered → passed=true
+    // MISSING_RATE_LIMIT is MEDIUM — below the HIGH failOn threshold.
     expect(report.findings.some((f) => f.severity === Severity.MEDIUM)).toBe(true);
     expect(report.passed).toBe(true);
   });
@@ -509,7 +639,8 @@ describe('SARIF output structure', () => {
   });
 
   it('findings appear in results', async () => {
-    const report = await scan({ serverUrl: 'https://example.com', rules: [RuleId.NO_AUTH] });
+    const path = writeTempConfig({ transport: { url: 'https://example.com', tls: true } });
+    const report = await scan({ configPath: path, rules: [RuleId.NO_AUTH] });
     const sarif = toSarif(report);
     expect(sarif.runs[0].results.length).toBeGreaterThan(0);
     expect(sarif.runs[0].results[0].ruleId).toBe(RuleId.NO_AUTH);

@@ -28,6 +28,15 @@ export type CliParseResult =
   | { kind: 'help'; exitCode: number }
   | { kind: 'error'; message: string; exitCode: number };
 
+/**
+ * Rule IDs accepted by `--rule`. URL_SCAN_LIMITED is excluded — it is an
+ * informational note synthesized in URL mode, not a selectable rule.
+ */
+const VALID_RULE_IDS = new Set<string>(
+  Object.values(RuleId).filter((id) => id !== RuleId.URL_SCAN_LIMITED)
+);
+const VALID_RULE_IDS_LIST = Array.from(VALID_RULE_IDS).join(', ');
+
 const SEVERITY_BY_NAME: Record<string, Severity> = {
   critical: Severity.CRITICAL,
   high: Severity.HIGH,
@@ -80,7 +89,16 @@ export function parseArgs(args: string[]): CliParseResult {
         };
       }
     } else if (arg.startsWith('--rule=')) {
-      rules.push(arg.slice('--rule='.length) as RuleId);
+      const ruleId = arg.slice('--rule='.length);
+      if (!VALID_RULE_IDS.has(ruleId)) {
+        return {
+          kind: 'error',
+          message:
+            `Error: Unknown rule "${ruleId}". Valid rule IDs: ${VALID_RULE_IDS_LIST}.`,
+          exitCode: 2,
+        };
+      }
+      rules.push(ruleId as RuleId);
     } else if (!arg.startsWith('--')) {
       target = arg;
     } else {
