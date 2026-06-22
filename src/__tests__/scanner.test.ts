@@ -395,6 +395,44 @@ describe('UNSAFE_TOOL_OUTPUT_PATH rule', () => {
     const findings = runInjectionRule(RuleId.UNSAFE_TOOL_OUTPUT_PATH, config);
     expect(findings).toHaveLength(1);
   });
+
+  // Traversal bypass: a benign-looking prefix that escapes into a system dir
+  it('fires for a path-traversal payload resolving into /etc', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'writer', outputPath: '/var/app/../../etc/passwd' }],
+    };
+    const findings = runInjectionRule(RuleId.UNSAFE_TOOL_OUTPUT_PATH, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].severity).toBe(Severity.CRITICAL);
+    // Evidence surfaces both the literal and the resolved path.
+    expect(findings[0].evidence).toContain('/var/app/../../etc/passwd');
+    expect(findings[0].evidence).toContain('/etc/passwd');
+  });
+
+  it('fires for a deeper traversal payload resolving into /proc', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'writer', outputPath: '/app/data/../../../proc/self/mem' }],
+    };
+    const findings = runInjectionRule(RuleId.UNSAFE_TOOL_OUTPUT_PATH, config);
+    expect(findings).toHaveLength(1);
+  });
+
+  it('fires for redundant same-dir traversal (/etc/../etc/passwd)', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'writer', outputPath: '/etc/../etc/passwd' }],
+    };
+    const findings = runInjectionRule(RuleId.UNSAFE_TOOL_OUTPUT_PATH, config);
+    expect(findings).toHaveLength(1);
+  });
+
+  // False-positive guard: traversal that stays inside a safe app directory.
+  it('does not fire when traversal resolves to a safe directory', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'writer', outputPath: '/app/tmp/../data/output.json' }],
+    };
+    const findings = runInjectionRule(RuleId.UNSAFE_TOOL_OUTPUT_PATH, config);
+    expect(findings).toHaveLength(0);
+  });
 });
 
 // ─── Full scan() integration tests ───────────────────────────────────────────
