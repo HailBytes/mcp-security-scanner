@@ -4,6 +4,30 @@ import { Rule } from './index.js';
 
 const DANGEROUS_PERMISSIONS = ['filesystem:write', 'network:*', 'shell:exec'];
 
+/**
+ * Normalize a permission grant for comparison. Permission strings are
+ * identifiers, so surrounding whitespace and case are not meaningful — and must
+ * not let a dangerous grant slip past the gate (e.g. `SHELL:EXEC`).
+ */
+function normalizePermission(p: string): string {
+  return p.trim().toLowerCase();
+}
+
+/**
+ * True when a granted permission covers a dangerous one — either an exact match
+ * or a broader wildcard that subsumes it. A global `*` grants everything; a
+ * category wildcard like `shell:*` grants every action in that category, so it
+ * covers `shell:exec`. Comparisons are case-insensitive.
+ */
+function permissionCovers(granted: string, dangerous: string): boolean {
+  const g = normalizePermission(granted);
+  const d = normalizePermission(dangerous);
+  if (g === '*' || g === d) return true;
+  const colon = d.indexOf(':');
+  if (colon !== -1 && g === `${d.slice(0, colon)}:*`) return true;
+  return false;
+}
+
 export const configRules: Rule[] = [
   {
     id: RuleId.WILDCARD_CORS,
@@ -68,8 +92,10 @@ export const configRules: Rule[] = [
       const findings: Finding[] = [];
       for (const tool of config.tools ?? []) {
         if (!tool.permissions || tool.permissions.length === 0) continue;
+        // Report the granted permissions (original spelling) that cover a
+        // dangerous one, so wildcards like `*` or `shell:*` surface in evidence.
         const matched = tool.permissions.filter((p) =>
-          DANGEROUS_PERMISSIONS.includes(p)
+          DANGEROUS_PERMISSIONS.some((d) => permissionCovers(p, d))
         );
         if (matched.length > 0) {
           findings.push({

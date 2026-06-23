@@ -138,13 +138,17 @@ export const runtimeRules: Rule[] = [
       for (const tool of config.tools ?? []) {
         if (!tool.permissions || tool.permissions.length === 0) continue;
 
-        const perms = tool.permissions;
+        // Normalize for comparison: permission grants are case-insensitive
+        // identifiers. A global `*` or `filesystem:*` grants full filesystem
+        // access; read+write together is equivalent.
+        const perms = tool.permissions.map((p) => p.trim().toLowerCase());
+        const hasGlobalWildcard = perms.includes('*');
         const hasWildcard = perms.includes('filesystem:*');
         const hasRead = perms.includes('filesystem:read');
         const hasWrite = perms.includes('filesystem:write');
 
-        if (hasWildcard || (hasRead && hasWrite)) {
-          const evidence = `tool: ${tool.name}, permissions: [${perms.join(', ')}]`;
+        if (hasGlobalWildcard || hasWildcard || (hasRead && hasWrite)) {
+          const evidence = `tool: ${tool.name}, permissions: [${tool.permissions.join(', ')}]`;
           findings.push({
             ruleId: RuleId.UNRESTRICTED_FILE_ACCESS,
             severity: Severity.HIGH,
