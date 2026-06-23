@@ -459,6 +459,40 @@ describe('OVERPRIVILEGED_TOOL rule', () => {
     const findings = runConfigRule(RuleId.OVERPRIVILEGED_TOOL, config);
     expect(findings).toHaveLength(0);
   });
+
+  it('fires for a global wildcard "*" (subsumes every dangerous permission)', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'god-tool', permissions: ['*'] }],
+    };
+    const findings = runConfigRule(RuleId.OVERPRIVILEGED_TOOL, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].evidence).toContain('*');
+  });
+
+  it('fires for a category wildcard "shell:*" (subsumes shell:exec)', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'shell-wild', permissions: ['shell:*'] }],
+    };
+    const findings = runConfigRule(RuleId.OVERPRIVILEGED_TOOL, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].evidence).toContain('shell:*');
+  });
+
+  it('fires regardless of case (SHELL:EXEC)', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'upper-exec', permissions: ['SHELL:EXEC'] }],
+    };
+    const findings = runConfigRule(RuleId.OVERPRIVILEGED_TOOL, config);
+    expect(findings).toHaveLength(1);
+  });
+
+  it('does not fire for an unrelated category wildcard (logging:*)', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'logger', permissions: ['logging:*'] }],
+    };
+    const findings = runConfigRule(RuleId.OVERPRIVILEGED_TOOL, config);
+    expect(findings).toHaveLength(0);
+  });
 });
 
 // ─── TOOL_DESC_INJECTION ──────────────────────────────────────────────────────
@@ -1080,6 +1114,51 @@ describe('default gate (passed) semantics', () => {
     expect(report.summary.high).toBe(0);
     expect(report.summary.medium).toBeGreaterThan(0);
     expect(report.passed).toBe(true);
+  });
+});
+
+// ─── UNRESTRICTED_FILE_ACCESS ─────────────────────────────────────────────────
+
+describe('UNRESTRICTED_FILE_ACCESS rule', () => {
+  it('fires for filesystem:* wildcard', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'fs-wild', permissions: ['filesystem:*'] }],
+    };
+    const findings = runRuntimeRule(RuleId.UNRESTRICTED_FILE_ACCESS, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].severity).toBe(Severity.HIGH);
+  });
+
+  it('fires for filesystem:read + filesystem:write together', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'rw', permissions: ['filesystem:read', 'filesystem:write'] }],
+    };
+    const findings = runRuntimeRule(RuleId.UNRESTRICTED_FILE_ACCESS, config);
+    expect(findings).toHaveLength(1);
+  });
+
+  it('fires for a global wildcard "*"', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'god-tool', permissions: ['*'] }],
+    };
+    const findings = runRuntimeRule(RuleId.UNRESTRICTED_FILE_ACCESS, config);
+    expect(findings).toHaveLength(1);
+  });
+
+  it('fires regardless of case (Filesystem:Read + Filesystem:Write)', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'rw-upper', permissions: ['Filesystem:Read', 'Filesystem:Write'] }],
+    };
+    const findings = runRuntimeRule(RuleId.UNRESTRICTED_FILE_ACCESS, config);
+    expect(findings).toHaveLength(1);
+  });
+
+  it('does not fire for read-only access', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'reader', permissions: ['filesystem:read'] }],
+    };
+    const findings = runRuntimeRule(RuleId.UNRESTRICTED_FILE_ACCESS, config);
+    expect(findings).toHaveLength(0);
   });
 });
 
