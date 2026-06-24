@@ -134,6 +134,31 @@ describe('toSarif()', () => {
     expect(sarif.runs[0].tool.driver.rules[0].id).toBe(RuleId.NO_AUTH);
   });
 
+  it('rules carry a GitHub "security-severity" property', () => {
+    const finding = makeFinding({ ruleId: RuleId.NO_AUTH, severity: Severity.CRITICAL });
+    const sarif = toSarif(makeReport({ findings: [finding] }));
+    expect(sarif.runs[0].tool.driver.rules[0].properties).toEqual({
+      'security-severity': '9.0',
+    });
+  });
+
+  it('security-severity score maps to GitHub severity bands', () => {
+    const cases: Array<[Severity, string]> = [
+      [Severity.CRITICAL, '9.0'], // >= 9.0 → critical
+      [Severity.HIGH, '8.0'], // 7.0–8.9 → high
+      [Severity.MEDIUM, '5.0'], // 4.0–6.9 → medium
+      [Severity.LOW, '2.0'], // < 4.0 → low
+      [Severity.INFO, '0.0'],
+    ];
+    for (const [severity, score] of cases) {
+      const finding = makeFinding({ ruleId: RuleId.NO_AUTH, severity });
+      const sarif = toSarif(makeReport({ findings: [finding] }));
+      expect(sarif.runs[0].tool.driver.rules[0].properties).toEqual({
+        'security-severity': score,
+      });
+    }
+  });
+
   it('configPath is included as artifact URI when provided', () => {
     const finding = makeFinding({ ruleId: RuleId.NO_AUTH, severity: Severity.CRITICAL });
     const sarif = toSarif(makeReport({ findings: [finding] }), './mcp-config.json');
