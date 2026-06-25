@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- `--exit-code` no longer fails the gate on an INFO-only result. A secure
+  `https://` / `wss://` endpoint reports `passed: true`, but URL mode always
+  emits the informational `URL_SCAN_LIMITED` note — which `types.ts` documents
+  as "never fails a gate". `--exit-code` previously counted that note as a
+  finding and exited 1, contradicting the report's own `PASSED` verdict and
+  reddening CI for every secure endpoint. INFO-severity findings are now
+  excluded from the `--exit-code` count.
 - URL/endpoint mode no longer produces false findings (#27). Scanning a URL
   previously ran every config rule against an effectively empty config, so any
   endpoint always emitted a CRITICAL `NO_AUTH` and a MEDIUM `MISSING_RATE_LIMIT`

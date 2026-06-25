@@ -8,7 +8,7 @@
  * Options:
  *   --format=json|sarif|table   Output format (default: json)
  *   --output=json|sarif|table   Alias for --format
- *   --exit-code                 Exit 1 on any finding
+ *   --exit-code                 Exit 1 on any actionable finding (INFO notes excluded)
  *   --fail-on=critical|high|medium|low  Force fail when finding meets severity
  *   --rule=RULE_ID              Run only this rule (can be repeated)
  *   --help, -h                  Show help
@@ -17,7 +17,7 @@
 import { scan } from './scanner.js';
 import { toSarif } from './sarif.js';
 import { Severity, Finding, RuleId } from './types.js';
-import { parseArgs } from './args.js';
+import { parseArgs, shouldExitNonZero } from './args.js';
 
 /** Selectable rule IDs (excludes the URL_SCAN_LIMITED informational note). */
 const VALID_RULE_IDS = Object.values(RuleId).filter(
@@ -38,7 +38,7 @@ function printHelp(): void {
   console.log('Options:');
   console.log('  --format=json|sarif|table   Output format (default: json)');
   console.log('  --output=json|sarif|table   Alias for --format');
-  console.log('  --exit-code                 Exit 1 on any finding (regardless of score)');
+  console.log('  --exit-code                 Exit 1 on any actionable finding (INFO notes excluded)');
   console.log('  --fail-on=critical|high|medium|low');
   console.log('                              Force fail when any finding meets this severity');
   console.log('  --rule=RULE_ID              Run only the specified rule (repeatable)');
@@ -136,11 +136,7 @@ async function main(): Promise<void> {
       printTable(report.findings, report.passed);
     }
 
-    const shouldFail =
-      !report.passed ||
-      (exitCode && report.findings.length > 0);
-
-    if (shouldFail) {
+    if (shouldExitNonZero(report, exitCode)) {
       process.exit(1);
     }
   } catch (err) {

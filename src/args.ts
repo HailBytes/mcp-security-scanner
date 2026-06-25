@@ -5,7 +5,7 @@
  * unit-tested directly, separate from the executable entry point in cli.ts.
  */
 
-import { ScanConfig, Severity, RuleId } from './types.js';
+import { ScanConfig, SecurityReport, Severity, RuleId } from './types.js';
 
 export type OutputFormat = 'json' | 'sarif' | 'table';
 
@@ -129,4 +129,27 @@ export function parseArgs(args: string[]): CliParseResult {
   if (rules.length > 0) scanConfig.rules = rules;
 
   return { kind: 'run', target, isUrl, format, exitCode, scanConfig };
+}
+
+/**
+ * Decide whether the CLI should exit with a non-zero (failure) status.
+ *
+ * A scan fails the gate when the report did not pass, OR when `--exit-code` is
+ * set and the scan produced at least one *actionable* finding. INFO-severity
+ * findings are informational notes — e.g. `URL_SCAN_LIMITED`, which `types.ts`
+ * documents as "Not a vulnerability — INFO severity, never fails a gate" — so
+ * they are excluded from the `--exit-code` count.
+ *
+ * Without this exclusion, `--exit-code` would exit 1 on a secure `https://` /
+ * `wss://` endpoint solely because URL mode always emits the INFO note, even
+ * though the report itself reports `passed: true`. That contradicts both the
+ * documented meaning of the note and the report's own pass/fail verdict.
+ */
+export function shouldExitNonZero(
+  report: SecurityReport,
+  exitCodeFlag: boolean
+): boolean {
+  if (!report.passed) return true;
+  if (!exitCodeFlag) return false;
+  return report.findings.some((f) => f.severity !== Severity.INFO);
 }
