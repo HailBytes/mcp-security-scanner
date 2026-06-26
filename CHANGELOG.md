@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- `--exit-code` no longer fails on the informational `URL_SCAN_LIMITED` note.
+  Scanning a secure `https://`/`wss://` endpoint with `--exit-code` printed
+  `PASSED` but still exited `1`, because the INFO note counted as a "finding" —
+  failing CI on every secure endpoint and contradicting the note's documented
+  "never fails a gate" contract. The exit-code gate now ignores INFO-severity
+  findings and trips only on actionable (LOW+) ones.
 - URL/endpoint mode no longer produces false findings (#27). Scanning a URL
   previously ran every config rule against an effectively empty config, so any
   endpoint always emitted a CRITICAL `NO_AUTH` and a MEDIUM `MISSING_RATE_LIMIT`
