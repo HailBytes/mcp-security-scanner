@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `EXPOSED_SECRETS`: broadened detection from 4 to 9 high-confidence credential
+  formats. New patterns cover PEM-encoded **private keys** (RSA/EC/OPENSSH/DSA),
+  **Slack** tokens (`xox[baprs]-`), **Google** API keys (`AIza…`), **Stripe**
+  live secret keys (`[sr]k_live_…`), scoped **GitHub** tokens (`gho_`/`ghu_`/
+  `ghs_`/`ghr_`) and fine-grained PATs (`github_pat_…`), and AWS **temporary**
+  access keys (`ASIA…`) alongside the existing long-term `AKIA…`. Patterns stay
+  prefix-anchored to keep the false-positive rate low (a JWT-shaped `auth.token`
+  is not flagged). First test coverage for this rule (previously untested).
+
+### Security
+- `EXPOSED_SECRETS`: the finding no longer echoes the matched secret value into
+  its evidence (and therefore into CI logs and uploaded SARIF). It now reports
+  the *types* of secret detected (e.g. "Detected 2 likely secret type(s):
+  OpenAI API key, PEM private key") instead of a truncated copy of the
+  credential, so running the scanner can no longer re-expose the secret.
+
 ### Fixed
 - URL/endpoint mode no longer produces false findings (#27). Scanning a URL
   previously ran every config rule against an effectively empty config, so any

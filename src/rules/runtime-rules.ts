@@ -2,11 +2,33 @@ import { Finding, RuleId, Severity } from '../types.js';
 import { ParsedMcpConfig } from '../parser.js';
 import { Rule } from './index.js';
 
-const SECRET_PATTERNS: RegExp[] = [
-  /sk-[a-zA-Z0-9]{20,}/i,           // OpenAI API key
-  /ghp_[a-zA-Z0-9]{36}/i,            // GitHub PAT
-  /AKIA[0-9A-Z]{16}/i,               // AWS access key
-  /[Pp]assword\s*[=:]\s*\S{8,}/,     // Password assignment
+/** A labelled secret-detection pattern. The label names the secret *type* so a
+ * finding can say what was detected without echoing the secret value itself. */
+interface SecretPattern {
+  label: string;
+  pattern: RegExp;
+}
+
+/**
+ * High-confidence patterns for credentials that should never be hardcoded in a
+ * config file. Each is anchored on a distinctive prefix or structure to keep the
+ * false-positive rate low — we deliberately avoid generic "long random-looking
+ * string" heuristics, which would flag legitimate opaque tokens (e.g. a JWT in
+ * `transport.auth.token`, which the auth rules treat as valid authentication).
+ */
+const SECRET_PATTERNS: SecretPattern[] = [
+  { label: 'OpenAI API key', pattern: /sk-[a-zA-Z0-9]{20,}/i },
+  // Classic and scoped GitHub tokens: ghp_/gho_/ghu_/ghs_/ghr_.
+  { label: 'GitHub token', pattern: /gh[opusr]_[A-Za-z0-9]{36,}/ },
+  { label: 'GitHub fine-grained PAT', pattern: /github_pat_[A-Za-z0-9_]{22,}/ },
+  // AWS long-term (AKIA) and temporary (ASIA) access key IDs are uppercase.
+  { label: 'AWS access key ID', pattern: /(?:AKIA|ASIA)[0-9A-Z]{16}/ },
+  { label: 'Google API key', pattern: /AIza[0-9A-Za-z_-]{35}/ },
+  { label: 'Slack token', pattern: /xox[baprs]-[A-Za-z0-9-]{10,}/ },
+  { label: 'Stripe secret key', pattern: /[sr]k_live_[0-9a-zA-Z]{16,}/ },
+  // PEM-encoded private key of any flavour (RSA, EC, OPENSSH, DSA, PGP, …).
+  { label: 'PEM private key', pattern: /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----/ },
+  { label: 'hardcoded password', pattern: /[Pp]assword\s*[=:]\s*\S{8,}/ },
 ];
 
 export const runtimeRules: Rule[] = [
@@ -96,18 +118,21 @@ export const runtimeRules: Rule[] = [
     title: 'Potential Secret Exposed in Configuration',
     check(config: ParsedMcpConfig): Finding[] {
       const rawStrings = config.rawStrings ?? [];
-      const matched: string[] = [];
+      // Collect the *types* of secret detected, not the secret values. Echoing a
+      // matched credential into the finding (and from there into CI logs / SARIF
+      // uploads) would re-expose the very secret this rule is meant to protect.
+      const detected = new Set<string>();
 
       for (const s of rawStrings) {
-        for (const pattern of SECRET_PATTERNS) {
+        for (const { label, pattern } of SECRET_PATTERNS) {
           if (pattern.test(s)) {
-            matched.push(s.length > 60 ? s.slice(0, 57) + '...' : s);
-            break;
+            detected.add(label);
           }
         }
       }
 
-      if (matched.length > 0) {
+      if (detected.size > 0) {
+        const labels = Array.from(detected);
         return [
           {
             ruleId: RuleId.EXPOSED_SECRETS,
@@ -117,7 +142,7 @@ export const runtimeRules: Rule[] = [
               'The configuration file appears to contain one or more hardcoded secrets ' +
               '(API keys, tokens, or passwords). Secrets committed to config files can be ' +
               'extracted by anyone with access to the file.',
-            evidence: `Matched value(s): ${matched.slice(0, 3).join('; ')}`,
+            evidence: `Detected ${labels.length} likely secret type(s): ${labels.join(', ')}`,
             remediation:
               'Remove secrets from configuration files. Use environment variables, a secrets manager ' +
               '(e.g., AWS Secrets Manager, HashiCorp Vault), or a .env file excluded from version control.',
