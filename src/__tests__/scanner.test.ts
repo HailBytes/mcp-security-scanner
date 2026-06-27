@@ -563,6 +563,79 @@ describe('INSECURE_TRANSPORT rule', () => {
   });
 });
 
+// ─── EXPOSED_SECRETS rule ─────────────────────────────────────────────────────
+
+describe('EXPOSED_SECRETS rule', () => {
+  function runSecretScan(rawStrings: string[]) {
+    return runRuntimeRule(RuleId.EXPOSED_SECRETS, { rawStrings });
+  }
+
+  // Each high-confidence pattern should match a representative sample.
+  const positives: Array<[string, string]> = [
+    ['OpenAI API key', 'sk-abcdefghijklmnopqrstuvwxyz0123'],
+    ['classic GitHub PAT', 'ghp_' + 'a'.repeat(36)],
+    ['scoped GitHub token (gho_)', 'gho_' + 'b'.repeat(36)],
+    ['GitHub fine-grained PAT', 'github_pat_' + 'c'.repeat(30)],
+    ['AWS long-term access key', 'AKIAIOSFODNN7EXAMPLE'],
+    ['AWS temporary access key', 'ASIAIOSFODNN7EXAMPLE'],
+    ['Google API key', 'AIzaSyA1234567890abcdefghijklmnopqrstuv'],
+    ['Slack bot token', 'xoxb-EXAMPLE-PLACEHOLDER-NOT-A-REAL-TOKEN'],
+    ['Stripe live secret key', 'sk_live_0123456789abcdefABCDEF'],
+    ['PEM private key', '-----BEGIN RSA PRIVATE KEY-----'],
+    ['OpenSSH private key', '-----BEGIN OPENSSH PRIVATE KEY-----'],
+    ['hardcoded password', 'password: hunter2hunter2'],
+  ];
+
+  it.each(positives)('flags a %s', (_label, value) => {
+    const findings = runSecretScan([value]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].ruleId).toBe(RuleId.EXPOSED_SECRETS);
+    expect(findings[0].severity).toBe(Severity.CRITICAL);
+  });
+
+  it('does not echo the raw secret value in the evidence', () => {
+    const secret = 'sk-abcdefghijklmnopqrstuvwxyz0123';
+    const findings = runSecretScan([secret]);
+    expect(findings[0].evidence).not.toContain(secret);
+    // Evidence should name the *type* of secret instead.
+    expect(findings[0].evidence).toContain('OpenAI API key');
+  });
+
+  it('reports each distinct secret type once, without duplicates', () => {
+    const findings = runSecretScan([
+      'sk-abcdefghijklmnopqrstuvwxyz0123',
+      'sk-zyxwvutsrqponmlkjihgfedcba9876', // second OpenAI key — same type
+      'AKIAIOSFODNN7EXAMPLE',
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].evidence).toContain('OpenAI API key');
+    expect(findings[0].evidence).toContain('AWS access key ID');
+    // "OpenAI API key" must appear exactly once despite two matching values.
+    expect(findings[0].evidence.match(/OpenAI API key/g)).toHaveLength(1);
+  });
+
+  it('does not fire on a JWT-shaped auth token (no false positive)', () => {
+    const findings = runSecretScan([
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.c2VjcmV0LXRva2VuLWZvcnR5LXR3by1jaGFycw',
+    ]);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('does not fire on ordinary config strings', () => {
+    const findings = runSecretScan([
+      'https://secure-mcp.example.com',
+      'read-document',
+      'filesystem:read',
+    ]);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('does not fire when rawStrings is absent', () => {
+    const findings = runRuntimeRule(RuleId.EXPOSED_SECRETS, {});
+    expect(findings).toHaveLength(0);
+  });
+});
+
 // ─── failOn behaviour ─────────────────────────────────────────────────────────
 
 describe('failOn config', () => {
