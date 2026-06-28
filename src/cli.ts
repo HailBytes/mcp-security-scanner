@@ -18,6 +18,7 @@ import { scan } from './scanner.js';
 import { toSarif } from './sarif.js';
 import { Severity, Finding, RuleId } from './types.js';
 import { parseArgs } from './args.js';
+import { shouldFailExit } from './exit-policy.js';
 
 /** Selectable rule IDs (excludes the URL_SCAN_LIMITED informational note). */
 const VALID_RULE_IDS = Object.values(RuleId).filter(
@@ -136,11 +137,7 @@ async function main(): Promise<void> {
       printTable(report.findings, report.passed);
     }
 
-    const shouldFail =
-      !report.passed ||
-      (exitCode && report.findings.length > 0);
-
-    if (shouldFail) {
+    if (shouldFailExit(report, exitCode)) {
       process.exit(1);
     }
   } catch (err) {
