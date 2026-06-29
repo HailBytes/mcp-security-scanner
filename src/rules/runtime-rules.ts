@@ -2,12 +2,48 @@ import { Finding, RuleId, Severity } from '../types.js';
 import { ParsedMcpConfig } from '../parser.js';
 import { Rule } from './index.js';
 
-const SECRET_PATTERNS: RegExp[] = [
-  /sk-[a-zA-Z0-9]{20,}/i,           // OpenAI API key
-  /ghp_[a-zA-Z0-9]{36}/i,            // GitHub PAT
-  /AKIA[0-9A-Z]{16}/i,               // AWS access key
-  /[Pp]assword\s*[=:]\s*\S{8,}/,     // Password assignment
+/**
+ * A labeled secret pattern. The `name` is surfaced in the finding so users know
+ * which kind of credential was matched, and the patterns are intentionally
+ * anchored on distinctive vendor prefixes / structures to keep false positives
+ * low (a high-entropy random token without a known prefix will not match).
+ */
+interface SecretPattern {
+  name: string;
+  pattern: RegExp;
+}
+
+const SECRET_PATTERNS: SecretPattern[] = [
+  // Anthropic keys (`sk-ant-…`) and OpenAI project keys (`sk-proj-…`) contain
+  // hyphens, so the generic OpenAI pattern below (which stops at the first
+  // hyphen) misses them — they need their own, hyphen-tolerant matchers.
+  { name: 'Anthropic API key', pattern: /sk-ant-[A-Za-z0-9_-]{20,}/ },
+  { name: 'OpenAI API key', pattern: /sk-(?:proj-)?[A-Za-z0-9_-]{20,}/ },
+  { name: 'GitHub token', pattern: /gh[pousr]_[A-Za-z0-9]{36,}/ },
+  { name: 'GitHub fine-grained PAT', pattern: /github_pat_[A-Za-z0-9_]{22,}/ },
+  // AWS access key IDs are strictly uppercase — matching case-insensitively
+  // (the previous behaviour) flags any lowercase "akia…" substring as a key.
+  { name: 'AWS access key ID', pattern: /AKIA[0-9A-Z]{16}/ },
+  { name: 'Google API key', pattern: /AIza[0-9A-Za-z_-]{35}/ },
+  { name: 'Slack token', pattern: /xox[baprs]-[A-Za-z0-9-]{10,}/ },
+  { name: 'Stripe secret key', pattern: /[sr]k_live_[A-Za-z0-9]{16,}/ },
+  { name: 'Private key block', pattern: /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----/ },
+  // Credentials embedded in a connection-string URL (`scheme://user:pass@host`).
+  // Requires both a user and a password before the `@`, so plain URLs such as
+  // `https://api.example.com` (no userinfo) do not match.
+  { name: 'Credentials in URL', pattern: /[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/:@]+@/i },
+  { name: 'Hardcoded password', pattern: /[Pp]assword\s*[=:]\s*\S{8,}/ },
 ];
+
+/**
+ * Redact a matched secret for safe display. Scan reports can be printed to logs
+ * or uploaded to GitHub Code Scanning as SARIF, so the full credential must not
+ * be echoed. Only a short, non-sensitive prefix is shown alongside the length.
+ */
+function redactSecret(value: string): string {
+  const head = value.slice(0, 6);
+  return `${head}…(${value.length} chars, redacted)`;
+}
 
 export const runtimeRules: Rule[] = [
   {
@@ -96,28 +132,33 @@ export const runtimeRules: Rule[] = [
     title: 'Potential Secret Exposed in Configuration',
     check(config: ParsedMcpConfig): Finding[] {
       const rawStrings = config.rawStrings ?? [];
-      const matched: string[] = [];
+      const matched: Array<{ kind: string; preview: string }> = [];
 
       for (const s of rawStrings) {
-        for (const pattern of SECRET_PATTERNS) {
+        for (const { name, pattern } of SECRET_PATTERNS) {
           if (pattern.test(s)) {
-            matched.push(s.length > 60 ? s.slice(0, 57) + '...' : s);
+            matched.push({ kind: name, preview: redactSecret(s) });
             break;
           }
         }
       }
 
       if (matched.length > 0) {
+        const kinds = Array.from(new Set(matched.map((m) => m.kind)));
+        const previews = matched
+          .slice(0, 3)
+          .map((m) => `${m.kind}: ${m.preview}`)
+          .join('; ');
         return [
           {
             ruleId: RuleId.EXPOSED_SECRETS,
             severity: Severity.CRITICAL,
             title: 'Potential Secret Exposed in Configuration',
             description:
-              'The configuration file appears to contain one or more hardcoded secrets ' +
-              '(API keys, tokens, or passwords). Secrets committed to config files can be ' +
+              `The configuration appears to contain ${matched.length} hardcoded secret(s) ` +
+              `(${kinds.join(', ')}). Secrets committed to config files can be ` +
               'extracted by anyone with access to the file.',
-            evidence: `Matched value(s): ${matched.slice(0, 3).join('; ')}`,
+            evidence: `Matched ${matched.length} value(s) — ${previews}`,
             remediation:
               'Remove secrets from configuration files. Use environment variables, a secrets manager ' +
               '(e.g., AWS Secrets Manager, HashiCorp Vault), or a .env file excluded from version control.',

@@ -563,6 +563,82 @@ describe('INSECURE_TRANSPORT rule', () => {
   });
 });
 
+// ─── EXPOSED_SECRETS rule ─────────────────────────────────────────────────────
+
+describe('EXPOSED_SECRETS rule', () => {
+  function run(rawStrings: string[]) {
+    return runRuntimeRule(RuleId.EXPOSED_SECRETS, { rawStrings });
+  }
+
+  // Some sample credentials are assembled from fragments at runtime so the full
+  // token never appears as a literal in source — otherwise GitHub push
+  // protection (rightly) blocks the commit for containing a Slack/Stripe key.
+  const SAMPLE_SLACK = ['xoxb', '1234567890', 'abcdefghijklmnopqrstuvwx'].join('-');
+  const SAMPLE_STRIPE = 'sk' + '_live_' + 'aBcDeFgHiJkLmNoPqRsTuVwXyZ';
+
+  // Each of these credential formats commonly appears in real MCP configs and
+  // must be detected. (Regression for the false-negative gap where only a thin
+  // set of vendor prefixes — and no connection-string credentials — were caught.)
+  it.each([
+    ['Anthropic API key', 'sk-ant-api03-aBcDeFgHiJkLmNoPqRsTuVwXyZ012345-aBcDeFgH'],
+    ['OpenAI project key', 'sk-proj-aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789'],
+    ['GitHub PAT', 'ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789'],
+    ['GitHub fine-grained PAT', 'github_pat_11ABCDEFG0aBcDeFgHiJkLmNoPqRsTuVwXyZ'],
+    ['AWS access key ID', 'AKIAIOSFODNN7EXAMPLE'],
+    ['Google API key', 'AIzaSyA1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6Q7'],
+    ['Slack bot token', SAMPLE_SLACK],
+    ['Stripe secret key', SAMPLE_STRIPE],
+    ['credentials in a connection URL', 'postgres://admin:SuperSecret123@db.internal:5432/app'],
+  ])('detects a %s', (_label, secret) => {
+    const findings = run([secret]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].ruleId).toBe(RuleId.EXPOSED_SECRETS);
+    expect(findings[0].severity).toBe(Severity.CRITICAL);
+  });
+
+  it('detects a PEM private key block', () => {
+    const findings = run(['-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA...']);
+    expect(findings).toHaveLength(1);
+  });
+
+  // The full secret must never be echoed back into the report (it can be logged
+  // or uploaded as SARIF); only a short prefix plus a length is shown.
+  it('redacts the matched secret in evidence', () => {
+    const secret = SAMPLE_STRIPE;
+    const findings = run([secret]);
+    expect(findings[0].evidence).not.toContain(secret);
+    expect(findings[0].evidence).toContain('redacted');
+    expect(findings[0].evidence).toContain('Stripe secret key');
+  });
+
+  it('does not fire on a plain URL without embedded credentials', () => {
+    expect(run(['https://api.example.com/mcp'])).toHaveLength(0);
+    expect(run(['wss://secure-mcp.example.com'])).toHaveLength(0);
+  });
+
+  it('does not fire on a high-entropy opaque token without a known prefix', () => {
+    // A strong, random-looking 40-char credential that matches no vendor format.
+    expect(run(['9f8e7d6c5b4a39281706f5e4d3c2b1a0ffeeddcc'])).toHaveLength(0);
+  });
+
+  it('does not fire on the bundled secure-config values (no false positives)', () => {
+    // The JWT-style bearer token in examples/secure-config.json must stay clean.
+    expect(
+      run(['eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.c2VjcmV0LXRva2VuLWZvcnR5LXR3by1jaGFycw'])
+    ).toHaveLength(0);
+  });
+
+  it('reports the count and kinds when multiple secrets are present', () => {
+    const findings = run([
+      'sk-ant-api03-aBcDeFgHiJkLmNoPqRsTuVwXyZ012345',
+      'AKIAIOSFODNN7EXAMPLE',
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].description).toContain('Anthropic API key');
+    expect(findings[0].description).toContain('AWS access key ID');
+  });
+});
+
 // ─── failOn behaviour ─────────────────────────────────────────────────────────
 
 describe('failOn config', () => {
