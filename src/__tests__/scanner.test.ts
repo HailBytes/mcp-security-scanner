@@ -563,6 +563,62 @@ describe('INSECURE_TRANSPORT rule', () => {
   });
 });
 
+// ─── EXPOSED_SECRETS rule ─────────────────────────────────────────────────────
+
+describe('EXPOSED_SECRETS rule', () => {
+  function runSecrets(rawStrings: string[]) {
+    return runRuntimeRule(RuleId.EXPOSED_SECRETS, { rawStrings });
+  }
+
+  it.each([
+    ['Anthropic API key', 'sk-ant-api03-' + 'a'.repeat(95)],
+    ['OpenAI API key', 'sk-' + 'a'.repeat(48)],
+    ['OpenAI API key', 'sk-proj-' + 'b'.repeat(40)],
+    ['GitHub fine-grained PAT', 'github_pat_' + 'A1b2'.repeat(20)],
+    ['GitHub token', 'gho_' + 'a'.repeat(36)],
+    ['GitHub token', 'ghp_' + 'a'.repeat(36)],
+    ['AWS access key ID', 'AKIA' + 'ABCD1234EFGH5678'],
+    ['Google API key', 'AIza' + 'a'.repeat(35)],
+    ['Slack token', 'xoxb-' + '123456789012-abcdefXYZ'],
+    ['Stripe secret key', 'sk_live_' + 'abcd1234efgh5678ij'],
+    ['Private key (PEM)', '-----BEGIN RSA PRIVATE KEY-----\nMIIB...\n-----END RSA PRIVATE KEY-----'],
+    ['Hardcoded password', 'password=hunter2pass'],
+  ])('detects a %s and labels it', (label, secret) => {
+    const findings = runSecrets([secret]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].ruleId).toBe(RuleId.EXPOSED_SECRETS);
+    expect(findings[0].severity).toBe(Severity.CRITICAL);
+    expect(findings[0].evidence).toContain(label);
+  });
+
+  // Regression: an Anthropic key must be caught (the old `sk-[a-zA-Z0-9]{20,}`
+  // pattern could not, because of the hyphens in `sk-ant-api03-`).
+  it('catches an Anthropic key the legacy OpenAI pattern would miss', () => {
+    const findings = runSecrets(['sk-ant-api03-' + 'x'.repeat(95)]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].evidence).toContain('Anthropic API key');
+  });
+
+  // The report must not re-expose the secret it flags (SARIF is often uploaded).
+  it('redacts the matched secret instead of echoing it in evidence', () => {
+    const secret = 'sk-' + 'z'.repeat(48);
+    const findings = runSecrets([secret]);
+    expect(findings[0].evidence).not.toContain(secret);
+    expect(findings[0].evidence).toContain('redacted');
+    expect(findings[0].evidence).toContain(String(secret.length));
+  });
+
+  it('does not fire on ordinary config values', () => {
+    const findings = runSecrets([
+      'https://api.example.com/mcp',
+      'bearer',
+      'a short value',
+      'requestsPerMinute',
+    ]);
+    expect(findings).toHaveLength(0);
+  });
+});
+
 // ─── failOn behaviour ─────────────────────────────────────────────────────────
 
 describe('failOn config', () => {

@@ -2,12 +2,45 @@ import { Finding, RuleId, Severity } from '../types.js';
 import { ParsedMcpConfig } from '../parser.js';
 import { Rule } from './index.js';
 
-const SECRET_PATTERNS: RegExp[] = [
-  /sk-[a-zA-Z0-9]{20,}/i,           // OpenAI API key
-  /ghp_[a-zA-Z0-9]{36}/i,            // GitHub PAT
-  /AKIA[0-9A-Z]{16}/i,               // AWS access key
-  /[Pp]assword\s*[=:]\s*\S{8,}/,     // Password assignment
+/** A labelled secret signature. The label names the credential type in the
+ * finding's evidence so users know what leaked, without echoing the raw value. */
+interface SecretPattern {
+  label: string;
+  pattern: RegExp;
+}
+
+/**
+ * Signatures for the most common high-confidence secret formats. Each prefix is
+ * vendor-specific and long enough that false positives on ordinary config
+ * values are negligible. Anthropic is listed before the broader OpenAI `sk-`
+ * pattern so a `sk-ant-…` key is attributed to the correct vendor.
+ */
+const SECRET_PATTERNS: SecretPattern[] = [
+  { label: 'Anthropic API key', pattern: /\bsk-ant-(?:api|admin)\d{2}-[A-Za-z0-9_-]{24,}/ },
+  { label: 'OpenAI API key', pattern: /\bsk-(?:proj-)?[A-Za-z0-9]{20,}/ },
+  { label: 'GitHub fine-grained PAT', pattern: /\bgithub_pat_[A-Za-z0-9_]{30,}/ },
+  // Classic GitHub tokens share a `gh<x>_` + 36-char shape: ghp_ (PAT), gho_
+  // (OAuth), ghu_ (user-to-server), ghs_ (server), ghr_ (refresh).
+  { label: 'GitHub token', pattern: /\bgh[oprsu]_[A-Za-z0-9]{36}\b/ },
+  { label: 'AWS access key ID', pattern: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/ },
+  { label: 'Google API key', pattern: /\bAIza[0-9A-Za-z_-]{35}\b/ },
+  { label: 'Slack token', pattern: /\bxox[baprs]-[0-9A-Za-z-]{10,}/ },
+  { label: 'Stripe secret key', pattern: /\b[sr]k_live_[0-9A-Za-z]{16,}\b/ },
+  { label: 'Private key (PEM)', pattern: /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----/ },
+  { label: 'Hardcoded password', pattern: /password\s*[=:]\s*\S{8,}/i },
 ];
+
+/**
+ * Mask a matched secret so the finding identifies it without re-exposing it.
+ * Scan reports are frequently uploaded (e.g. SARIF to GitHub Code Scanning), so
+ * echoing the raw value would leak the very credential the rule exists to catch.
+ * Keeps only a short non-sensitive prefix plus the length.
+ */
+function redactSecret(value: string): string {
+  const trimmed = value.trim();
+  const prefix = trimmed.slice(0, 4);
+  return `${prefix}…[redacted, ${trimmed.length} chars]`;
+}
 
 export const runtimeRules: Rule[] = [
   {
@@ -99,9 +132,9 @@ export const runtimeRules: Rule[] = [
       const matched: string[] = [];
 
       for (const s of rawStrings) {
-        for (const pattern of SECRET_PATTERNS) {
+        for (const { label, pattern } of SECRET_PATTERNS) {
           if (pattern.test(s)) {
-            matched.push(s.length > 60 ? s.slice(0, 57) + '...' : s);
+            matched.push(`${label} (${redactSecret(s)})`);
             break;
           }
         }
