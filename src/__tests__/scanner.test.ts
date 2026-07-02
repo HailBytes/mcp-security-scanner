@@ -571,6 +571,64 @@ describe('TOOL_DESC_INJECTION rule', () => {
   });
 });
 
+// ─── HIDDEN_TOOL_METADATA ─────────────────────────────────────────────────────
+
+describe('HIDDEN_TOOL_METADATA rule', () => {
+  const ZWSP = String.fromCodePoint(0x200b); // zero-width space
+  const RLO = String.fromCodePoint(0x202e); // right-to-left override
+
+  it('fires for a smuggled ASCII payload in the description (Unicode Tags block)', () => {
+    // An invisible tag-encoded fragment appended to a benign description.
+    const hidden = String.fromCodePoint(0xe0069, 0xe0067, 0xe006e); // tag i, g, n
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'reader', description: `Reads a file.${hidden}` }],
+    };
+    const findings = runInjectionRule(RuleId.HIDDEN_TOOL_METADATA, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].ruleId).toBe(RuleId.HIDDEN_TOOL_METADATA);
+    expect(findings[0].severity).toBe(Severity.HIGH);
+    expect(findings[0].evidence).toContain('description');
+    expect(findings[0].evidence).toContain('U+E0069');
+  });
+
+  it('fires for a zero-width space hidden inside an otherwise benign description', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'reader', description: `Reads${ZWSP}a file from disk.` }],
+    };
+    const findings = runInjectionRule(RuleId.HIDDEN_TOOL_METADATA, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].evidence).toContain('U+200B');
+  });
+
+  it('fires for a bidirectional override (Trojan Source) in the tool name', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: `safe${RLO}reversed`, description: 'A tool.' }],
+    };
+    const findings = runInjectionRule(RuleId.HIDDEN_TOOL_METADATA, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].evidence).toContain('name');
+    expect(findings[0].evidence).toContain('U+202E');
+  });
+
+  it('does not fire for a benign description with ordinary whitespace', () => {
+    const config: ParsedMcpConfig = {
+      tools: [
+        { name: 'read-file', description: 'Reads a file from disk\n\tand returns its content.' },
+      ],
+    };
+    const findings = runInjectionRule(RuleId.HIDDEN_TOOL_METADATA, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('does not echo the raw hidden characters, only U+XXXX code points', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'reader', description: `Reads${ZWSP}a file.` }],
+    };
+    const findings = runInjectionRule(RuleId.HIDDEN_TOOL_METADATA, config);
+    expect(findings[0].evidence).not.toContain(ZWSP);
+  });
+});
+
 // ─── UNSAFE_TOOL_OUTPUT_PATH ─────────────────────────────────────────────────
 
 describe('UNSAFE_TOOL_OUTPUT_PATH rule', () => {

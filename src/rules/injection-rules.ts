@@ -80,6 +80,73 @@ function isUnsafeOutputPath(rawPath: string): boolean {
   return false;
 }
 
+/**
+ * Non-printable / invisible Unicode characters that have no legitimate place in
+ * a tool name or description, grouped by the attack technique they enable.
+ *
+ * These are the mechanism behind MCP "tool poisoning": text that a human
+ * reviewer cannot see, but which the model reads in full, is smuggled into the
+ * metadata presented to the LLM. The visible description looks benign while
+ * hidden characters carry reordered text or an encoded ASCII payload.
+ */
+const HIDDEN_CHAR_CATEGORIES: Array<{ label: string; test: (cp: number) => boolean }> = [
+  {
+    // U+E0000–U+E007F, the Unicode Tags block — used to encode an entire
+    // invisible ASCII payload. Essentially never legitimate in plain text.
+    label: 'Unicode Tag (ASCII smuggling)',
+    test: (cp) => cp >= 0xe0000 && cp <= 0xe007f,
+  },
+  {
+    // Trojan-Source style reordering controls: the rendered order differs from
+    // the logical order the model consumes.
+    label: 'bidirectional override',
+    test: (cp) =>
+      cp === 0x061c || // ARABIC LETTER MARK
+      cp === 0x200e || // LEFT-TO-RIGHT MARK
+      cp === 0x200f || // RIGHT-TO-LEFT MARK
+      (cp >= 0x202a && cp <= 0x202e) || // LRE RLE PDF LRO RLO
+      (cp >= 0x2066 && cp <= 0x2069), // LRI RLI FSI PDI
+  },
+  {
+    // Zero-width and other invisible formatting characters — used to break up
+    // keywords (evading text-based rules) or hide content outright.
+    label: 'zero-width / invisible formatting',
+    test: (cp) =>
+      cp === 0x00ad || // SOFT HYPHEN
+      cp === 0x180e || // MONGOLIAN VOWEL SEPARATOR
+      (cp >= 0x200b && cp <= 0x200d) || // ZWSP ZWNJ ZWJ
+      (cp >= 0x2060 && cp <= 0x2064) || // WORD JOINER + invisible math operators
+      (cp >= 0x206a && cp <= 0x206f) || // deprecated format controls
+      cp === 0xfeff || // ZERO WIDTH NO-BREAK SPACE (BOM)
+      (cp >= 0xfff9 && cp <= 0xfffb), // interlinear annotation anchors
+  },
+  {
+    // C0/C1 control characters, excluding the ordinary whitespace a
+    // description may legitimately contain (tab, newline, carriage return).
+    label: 'control character',
+    test: (cp) =>
+      (cp <= 0x001f && cp !== 0x09 && cp !== 0x0a && cp !== 0x0d) ||
+      (cp >= 0x007f && cp <= 0x009f),
+  },
+];
+
+/** Render a code point as a `U+XXXX` label (never echoes the raw hidden char). */
+function formatCodePoint(cp: number): string {
+  return 'U+' + cp.toString(16).toUpperCase().padStart(4, '0');
+}
+
+/** Collect every hidden character in `text` with the category it belongs to. */
+function findHiddenChars(text: string): Array<{ cp: number; label: string }> {
+  const hits: Array<{ cp: number; label: string }> = [];
+  for (const ch of text) {
+    const cp = ch.codePointAt(0);
+    if (cp === undefined) continue;
+    const category = HIDDEN_CHAR_CATEGORIES.find((c) => c.test(cp));
+    if (category) hits.push({ cp, label: category.label });
+  }
+  return hits;
+}
+
 export const injectionRules: Rule[] = [
   {
     id: RuleId.TOOL_DESC_INJECTION,
@@ -114,6 +181,56 @@ export const injectionRules: Rule[] = [
           });
           break;
         }
+      }
+      return findings;
+    },
+  },
+
+  {
+    id: RuleId.HIDDEN_TOOL_METADATA,
+    severity: Severity.HIGH,
+    title: 'Hidden Characters in Tool Metadata',
+    check(config: ParsedMcpConfig): Finding[] {
+      const findings: Finding[] = [];
+      for (const tool of config.tools ?? []) {
+        const fields: Array<{ field: string; value?: string }> = [
+          { field: 'name', value: tool.name },
+          { field: 'description', value: tool.description },
+        ];
+
+        const parts: string[] = [];
+        const labels = new Set<string>();
+        const affectedFields: string[] = [];
+
+        for (const { field, value } of fields) {
+          if (!value) continue;
+          const hits = findHiddenChars(value);
+          if (hits.length === 0) continue;
+          affectedFields.push(field);
+          hits.forEach((h) => labels.add(h.label));
+          const codePoints = [...new Set(hits.map((h) => formatCodePoint(h.cp)))].slice(0, 5);
+          parts.push(`${field}: ${hits.length} hidden char(s) [${codePoints.join(', ')}]`);
+        }
+
+        if (parts.length === 0) continue;
+
+        findings.push({
+          ruleId: RuleId.HIDDEN_TOOL_METADATA,
+          severity: Severity.HIGH,
+          title: 'Hidden Characters in Tool Metadata',
+          description:
+            `Tool "${tool.name}" has non-printable or invisible Unicode characters ` +
+            `(${[...labels].join(', ')}) in its ${affectedFields.join(' and ')}. ` +
+            'Such characters are invisible to a human reviewer but read in full by the model, ' +
+            'and are the core mechanism of MCP "tool poisoning" attacks — hidden instructions or ' +
+            'smuggled ASCII that can hijack the model while the visible text looks benign.',
+          evidence: parts.join('; '),
+          remediation:
+            'Remove all non-printable and invisible Unicode characters from tool names and ' +
+            'descriptions. Metadata presented to an LLM should contain only visible, printable text. ' +
+            'Reject tool definitions from untrusted MCP servers that include hidden characters.',
+          docsUrl: 'https://hailbytes.com/mcp/docs/rules/HIDDEN_TOOL_METADATA',
+        });
       }
       return findings;
     },
