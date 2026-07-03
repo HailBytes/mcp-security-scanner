@@ -561,6 +561,33 @@ describe('INSECURE_TRANSPORT rule', () => {
     const findings = runRuntimeRule(RuleId.INSECURE_TRANSPORT, config);
     expect(findings).toHaveLength(0);
   });
+
+  it('fires for a ws:// serverUrl when transport.url is absent', () => {
+    // A config can declare its endpoint at the top level (`serverUrl`) with no
+    // nested `transport.url`. The rule must still catch cleartext WebSockets
+    // there — mirroring MISSING_TLS's serverUrl fallback.
+    const config: ParsedMcpConfig = { serverUrl: 'ws://example.com/mcp' };
+    const findings = runRuntimeRule(RuleId.INSECURE_TRANSPORT, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].ruleId).toBe(RuleId.INSECURE_TRANSPORT);
+    expect(findings[0].severity).toBe(Severity.HIGH);
+  });
+
+  it('does not fire for a wss:// serverUrl when transport.url is absent', () => {
+    const config: ParsedMcpConfig = { serverUrl: 'wss://example.com/mcp' };
+    const findings = runRuntimeRule(RuleId.INSECURE_TRANSPORT, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('prefers transport.url over serverUrl when both are present', () => {
+    const config: ParsedMcpConfig = {
+      serverUrl: 'wss://secure.example.com/mcp',
+      transport: { url: 'ws://insecure.example.com/mcp' },
+    };
+    const findings = runRuntimeRule(RuleId.INSECURE_TRANSPORT, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].evidence).toContain('ws://insecure.example.com/mcp');
+  });
 });
 
 // ─── failOn behaviour ─────────────────────────────────────────────────────────

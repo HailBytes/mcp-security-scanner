@@ -15,7 +15,12 @@ export const runtimeRules: Rule[] = [
     severity: Severity.HIGH,
     title: 'Insecure WebSocket Transport (ws://)',
     check(config: ParsedMcpConfig): Finding[] {
-      const url = config.transport?.url;
+      // Mirror MISSING_TLS: fall back to the top-level `serverUrl` when no
+      // `transport.url` is set. A config can declare its endpoint at either
+      // location (e.g. examples/minimal-config.json uses `serverUrl` alone),
+      // and an unencrypted `ws://` endpoint is equally insecure whichever
+      // field carries it.
+      const url = config.transport?.url ?? config.serverUrl;
       if (url && url.startsWith('ws://')) {
         return [
           {
