@@ -24,6 +24,9 @@ const SEVERITY_ORDER: Record<Severity, number> = {
 const URL_EVALUABLE_RULES = new Set<RuleId>([
   RuleId.MISSING_TLS,
   RuleId.INSECURE_TRANSPORT,
+  // Credentials in the userinfo component are visible in the URL string itself,
+  // so this is genuinely evaluable in URL mode (unlike auth/rate-limit rules).
+  RuleId.CREDENTIALS_IN_URL,
 ]);
 
 /**

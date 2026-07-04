@@ -153,6 +153,57 @@ export const authRules: Rule[] = [
   },
 
   {
+    id: RuleId.CREDENTIALS_IN_URL,
+    severity: Severity.HIGH,
+    title: 'Credentials Embedded in Transport URL',
+    check(config: ParsedMcpConfig): Finding[] {
+      const url = config.transport?.url ?? config.serverUrl;
+      if (!url) return [];
+
+      let parsed: URL;
+      try {
+        parsed = new URL(url);
+      } catch {
+        return []; // Not a parseable URL — nothing to inspect.
+      }
+
+      // The userinfo component (`user[:password]@host`) embeds credentials
+      // directly in the connection string. A bare `user@` still leaks the
+      // account identity, so any non-empty username is worth flagging.
+      if (parsed.username === '') return [];
+
+      const hasPassword = parsed.password !== '';
+      // Never echo the secret back. Redact the password, keep enough of the
+      // URL for the finding to be actionable.
+      const path = parsed.pathname === '/' ? '' : parsed.pathname;
+      const redacted = `${parsed.protocol}//${parsed.username}${
+        hasPassword ? ':***' : ''
+      }@${parsed.host}${path}`;
+
+      return [
+        {
+          ruleId: RuleId.CREDENTIALS_IN_URL,
+          severity: Severity.HIGH,
+          title: 'Credentials Embedded in Transport URL',
+          description:
+            'The transport URL embeds credentials in its userinfo component ' +
+            '(user:password@host). Credentials placed in a URL routinely leak ' +
+            'through access logs, proxy logs, browser history, and Referer ' +
+            'headers — TLS does not protect them, because the exposure happens ' +
+            'at the endpoints, not on the wire.',
+          evidence: `transport.url: ${redacted}`,
+          remediation:
+            'Remove the credentials from the URL. Authenticate via ' +
+            'transport.auth (apiKey, bearer token, or mTLS) or an Authorization ' +
+            'header instead, and source the secret from an environment variable ' +
+            'or a secrets manager rather than the connection string.',
+          docsUrl: 'https://hailbytes.com/mcp/docs/rules/CREDENTIALS_IN_URL',
+        },
+      ];
+    },
+  },
+
+  {
     id: RuleId.MISSING_TLS,
     severity: Severity.HIGH,
     title: 'Missing TLS — Server Uses Plain HTTP',

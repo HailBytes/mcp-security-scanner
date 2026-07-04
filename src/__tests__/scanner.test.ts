@@ -230,6 +230,77 @@ describe('WEAK_API_KEY rule', () => {
   });
 });
 
+// ─── CREDENTIALS_IN_URL ───────────────────────────────────────────────────────
+
+describe('CREDENTIALS_IN_URL rule', () => {
+  it('fires when the transport URL embeds a user:password', () => {
+    const config: ParsedMcpConfig = {
+      transport: { url: 'https://admin:SuperSecret@mcp.example.com/mcp' },
+    };
+    const findings = runAuthRule(RuleId.CREDENTIALS_IN_URL, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].ruleId).toBe(RuleId.CREDENTIALS_IN_URL);
+    expect(findings[0].severity).toBe(Severity.HIGH);
+  });
+
+  it('redacts the password in the evidence (never echoes the secret)', () => {
+    const config: ParsedMcpConfig = {
+      transport: { url: 'https://admin:SuperSecret@mcp.example.com/mcp' },
+    };
+    const findings = runAuthRule(RuleId.CREDENTIALS_IN_URL, config);
+    expect(findings[0].evidence).not.toContain('SuperSecret');
+    expect(findings[0].evidence).toBe(
+      'transport.url: https://admin:***@mcp.example.com/mcp'
+    );
+  });
+
+  it('fires for a bare user@ with no password', () => {
+    const config: ParsedMcpConfig = {
+      transport: { url: 'https://user@mcp.example.com' },
+    };
+    const findings = runAuthRule(RuleId.CREDENTIALS_IN_URL, config);
+    expect(findings).toHaveLength(1);
+    // No password → no redaction marker.
+    expect(findings[0].evidence).toBe('transport.url: https://user@mcp.example.com');
+  });
+
+  it('fires for credentials in a wss:// URL', () => {
+    const config: ParsedMcpConfig = {
+      transport: { url: 'wss://svc:token123@mcp.example.com/mcp' },
+    };
+    const findings = runAuthRule(RuleId.CREDENTIALS_IN_URL, config);
+    expect(findings).toHaveLength(1);
+  });
+
+  it('falls back to serverUrl when transport.url is absent', () => {
+    const config: ParsedMcpConfig = {
+      serverUrl: 'https://root:pw@mcp.example.com',
+    };
+    const findings = runAuthRule(RuleId.CREDENTIALS_IN_URL, config);
+    expect(findings).toHaveLength(1);
+  });
+
+  it('does not fire for a clean URL with no userinfo', () => {
+    const config: ParsedMcpConfig = {
+      transport: { url: 'https://mcp.example.com/mcp' },
+    };
+    const findings = runAuthRule(RuleId.CREDENTIALS_IN_URL, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('does not fire when no URL is present', () => {
+    const config: ParsedMcpConfig = { transport: { auth: { type: 'bearer' } } };
+    const findings = runAuthRule(RuleId.CREDENTIALS_IN_URL, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('does not throw or fire on an unparseable URL', () => {
+    const config: ParsedMcpConfig = { transport: { url: 'not a url' } };
+    const findings = runAuthRule(RuleId.CREDENTIALS_IN_URL, config);
+    expect(findings).toHaveLength(0);
+  });
+});
+
 // ─── MISSING_TLS ──────────────────────────────────────────────────────────────
 
 describe('MISSING_TLS rule', () => {
@@ -657,6 +728,18 @@ describe('URL mode (live endpoint scan)', () => {
     const report = await scan({ serverUrl: 'ws://insecure.example.com' });
     expect(ruleIds(report)).toContain(RuleId.INSECURE_TRANSPORT);
     expect(ruleIds(report)).not.toContain(RuleId.MISSING_TLS);
+  });
+
+  it('flags credentials embedded in a URL-mode endpoint (URL-evaluable)', async () => {
+    const report = await scan({ serverUrl: 'https://admin:SuperSecret@mcp.example.com' });
+    expect(ruleIds(report)).toContain(RuleId.CREDENTIALS_IN_URL);
+    // The secret must not leak into the report.
+    expect(JSON.stringify(report)).not.toContain('SuperSecret');
+  });
+
+  it('a clean URL-mode endpoint does not flag CREDENTIALS_IN_URL', async () => {
+    const report = await scan({ serverUrl: 'https://secure.example.com' });
+    expect(ruleIds(report)).not.toContain(RuleId.CREDENTIALS_IN_URL);
   });
 
   it('the URL_SCAN_LIMITED note is INFO severity and never fails the gate', async () => {
