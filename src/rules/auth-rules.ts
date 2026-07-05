@@ -37,6 +37,62 @@ function isJwt(value: string): boolean {
   return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value);
 }
 
+/**
+ * Common default/weak credentials. Matched against the *whole* normalized
+ * credential (lowercased, separators removed) so a real random key can never
+ * collide — only a credential that is exactly one of these values is flagged.
+ */
+const DEFAULT_CREDENTIALS = new Set([
+  'password', 'passw0rd', 'password123', 'admin', 'administrator', 'root',
+  'secret', 'test', 'testing', 'changeit', 'changeme', 'default', 'letmein',
+  'qwerty', '123456', '12345678', '123456789', 'abc123', 'foobar', 'foo',
+  'bar', 'baz', 'example', 'dummy', 'sample', 'token', 'apikey', 'key',
+  'mysecret', 'topsecret', 'supersecret', 'hunter2', 'guest', 'demo',
+]);
+
+/**
+ * High-signal placeholder phrases. If the normalized credential *contains* one
+ * of these, it is almost certainly an unfilled placeholder rather than a real
+ * secret (e.g. `your-api-key-here`, `CHANGE_ME`, `<replace-me>`). Kept to
+ * multi-character, unambiguous phrases to hold the false-positive rate near
+ * zero — no bare `key`/`token`/`test` substrings.
+ */
+const PLACEHOLDER_SUBSTRINGS = [
+  'changeme', 'changethis', 'replaceme', 'replacethis', 'yourapikey',
+  'yourtoken', 'yoursecret', 'yourkey', 'yourpassword', 'placeholder',
+  'insertyour', 'apikeyhere', 'tokenhere', 'keyhere', 'secrethere',
+  'putyourkey', 'notarealkey', 'notreal', 'examplekey', 'exampletoken',
+  'sampletoken', 'samplekey', 'redacted',
+];
+
+/** Normalize a credential for comparison: lowercase, strip non-alphanumerics. */
+function normalizeCredential(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Decide whether a credential value is a placeholder / default / example.
+ * Returns a short reason label for the finding, or null if it looks real.
+ */
+function placeholderReason(value: string): string | null {
+  // Unresolved template markers: <your-key>, {{API_KEY}}, ${API_KEY}.
+  if (/<[^>]+>/.test(value) || /\{\{.*\}\}/.test(value) || /\$\{.*\}/.test(value)) {
+    return 'unresolved template placeholder';
+  }
+  // A run of 8+ identical filler characters (e.g. "xxxxxxxx", "00000000").
+  if (/(.)\1{7,}/.test(value)) {
+    return 'filler/repeated-character placeholder';
+  }
+  const norm = normalizeCredential(value);
+  if (DEFAULT_CREDENTIALS.has(norm)) {
+    return 'known default/weak credential';
+  }
+  if (PLACEHOLDER_SUBSTRINGS.some((p) => norm.includes(p))) {
+    return 'placeholder/example credential';
+  }
+  return null;
+}
+
 export const authRules: Rule[] = [
   {
     id: RuleId.NO_AUTH,
@@ -145,6 +201,51 @@ export const authRules: Rule[] = [
             `Generate a cryptographically random ${label} of at least 32 characters ` +
             '(preferably 64+). Use a secrets manager to store it.',
           docsUrl: 'https://hailbytes.com/mcp/docs/rules/WEAK_API_KEY',
+        });
+      }
+
+      return findings;
+    },
+  },
+
+  {
+    id: RuleId.PLACEHOLDER_CREDENTIAL,
+    severity: Severity.HIGH,
+    title: 'Placeholder or Default Credential',
+    check(config: ParsedMcpConfig): Finding[] {
+      const auth = config.transport?.auth;
+      const findings: Finding[] = [];
+
+      // Only the credential fields are inspected: NO_AUTH accepts any non-empty
+      // apiKey/token as "auth configured", and WEAK_API_KEY only checks length —
+      // so a *long* placeholder (e.g. "your-api-key-here-replace-before-prod")
+      // sails through both. This rule closes that gap.
+      const candidates: Array<{ field: 'apiKey' | 'token'; label: string }> = [
+        { field: 'apiKey', label: 'API key' },
+        { field: 'token', label: 'bearer token' },
+      ];
+
+      for (const { field, label } of candidates) {
+        const value = auth?.[field];
+        if (typeof value !== 'string' || value === '') continue;
+        const reason = placeholderReason(value);
+        if (!reason) continue;
+
+        findings.push({
+          ruleId: RuleId.PLACEHOLDER_CREDENTIAL,
+          severity: Severity.HIGH,
+          title: 'Placeholder or Default Credential',
+          description:
+            `The configured ${label} appears to be a ${reason} rather than a real, ` +
+            'unique secret. Placeholder or default credentials are publicly known ' +
+            'and let anyone authenticate as a legitimate client.',
+          // The matched value is a placeholder/default (not a real secret), so
+          // echoing a short slice of it is safe and helps locate the field.
+          evidence: `${field}: "${value.length > 32 ? value.slice(0, 29) + '...' : value}" (${reason})`,
+          remediation:
+            `Replace the ${label} with a cryptographically random value of at least ` +
+            '32 characters and store it in a secrets manager, never committed to config.',
+          docsUrl: 'https://hailbytes.com/mcp/docs/rules/PLACEHOLDER_CREDENTIAL',
         });
       }
 
