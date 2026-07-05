@@ -14,6 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CI log derived from it — re-exposed the very secrets it was flagging. Findings
   now report each match by type and length only (e.g. `OpenAI API key (29 chars,
   redacted)`), never the value.
+### Added
+- New `PLACEHOLDER_CREDENTIAL` rule (HIGH). Flags `transport.auth.apiKey` /
+  `transport.auth.token` values that are placeholders (`your-api-key-here`,
+  `<REPLACE_ME>`, `{{API_KEY}}`, filler like `xxxxxxxx`) or well-known
+  default/weak secrets (`changeme`, `password`, `admin`, …). Previously a *long*
+  placeholder (≥ 32 chars, not JWT-shaped) satisfied `NO_AUTH` and passed
+  `WEAK_API_KEY`, so a config shipped with an unfilled credential went green.
+  Matching is anchored to the whole normalized value (defaults) or high-signal
+  phrases (placeholders) to keep false positives near zero — a real random key
+  and a JWT are not flagged.
 
 ### Fixed
 - **`MISSING_TLS` / `INSECURE_TRANSPORT` no longer fire a false HIGH on loopback

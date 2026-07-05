@@ -80,6 +80,7 @@ console.log(report.passed);    // boolean — use as CI gate
 - **Overprivileged tools** — tools granted broader permissions than their declared function requires
 - **Missing or weak authentication** — unauthenticated transports, missing token validation
 - **Prompt injection / tool poisoning** — tool names and descriptions carrying instruction-like text (`<IMPORTANT>` blocks, "ignore previous instructions", "do not tell the user"), or output paths susceptible to injection
+- **Missing or weak authentication** — unauthenticated transports, missing token validation, and placeholder/default credentials (e.g. `your-api-key-here`, `changeme`) that pass length checks but aren't real secrets
 - **Prompt injection surface** — tool descriptions or output paths susceptible to injection
 - **Tool poisoning** — hidden/invisible Unicode characters in tool names and descriptions (ASCII smuggling via Unicode Tags, bidirectional overrides, zero-width characters) that a human reviewer can't see but the model reads in full
 - **Unsafe defaults** — insecure transport defaults, verbose error exposure, CORS wildcards
