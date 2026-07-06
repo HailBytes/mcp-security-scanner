@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- `EXPOSED_SECRETS` no longer echoes detected secrets in its own output. The
+  rule's `evidence` previously included the matched credential verbatim (only
+  truncated past 60 chars), so a scan report — stdout/JSON, and any artifact or
+  CI log derived from it — re-exposed the very secrets it was flagging. Findings
+  now report each match by type and length only (e.g. `OpenAI API key (29 chars,
+  redacted)`), never the value.
+
 ### Fixed
 - URL/endpoint mode no longer produces false findings (#27). Scanning a URL
   previously ran every config rule against an effectively empty config, so any

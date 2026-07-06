@@ -535,6 +535,59 @@ describe('DEBUG_MODE_ENABLED rule', () => {
   });
 });
 
+// ─── EXPOSED_SECRETS rule ─────────────────────────────────────────────────────
+
+describe('EXPOSED_SECRETS rule', () => {
+  const SECRETS = {
+    openai: 'sk-abcdefghijklmnop1234567890',
+    aws: 'AKIAIOSFODNN7EXAMPLE',
+    github: 'ghp_abcdefghijklmnopqrstuvwxyz0123456789',
+  };
+
+  it('fires when a config string contains a recognizable secret', () => {
+    const config: ParsedMcpConfig = { rawStrings: [SECRETS.openai] };
+    const findings = runRuntimeRule(RuleId.EXPOSED_SECRETS, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].ruleId).toBe(RuleId.EXPOSED_SECRETS);
+    expect(findings[0].severity).toBe(Severity.CRITICAL);
+  });
+
+  it('never echoes the detected secret value in the finding (redacted evidence)', () => {
+    const config: ParsedMcpConfig = {
+      rawStrings: [SECRETS.openai, SECRETS.aws, SECRETS.github],
+    };
+    const findings = runRuntimeRule(RuleId.EXPOSED_SECRETS, config);
+    expect(findings).toHaveLength(1);
+
+    // The whole finding — every field — must be free of the raw credentials,
+    // since it flows into stdout/JSON/SARIF/CI logs where it would be re-exposed.
+    const serialized = JSON.stringify(findings[0]);
+    for (const secret of Object.values(SECRETS)) {
+      expect(serialized).not.toContain(secret);
+    }
+
+    // Evidence should still identify what was found: type, count, and length.
+    expect(findings[0].evidence).toContain('OpenAI API key');
+    expect(findings[0].evidence).toContain('AWS access key ID');
+    expect(findings[0].evidence).toContain('GitHub token');
+    expect(findings[0].evidence).toMatch(/redacted/i);
+  });
+
+  it('does not fire when no strings match a secret pattern', () => {
+    const config: ParsedMcpConfig = {
+      rawStrings: ['https://example.com', 'bearer', 'a normal description'],
+    };
+    const findings = runRuntimeRule(RuleId.EXPOSED_SECRETS, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('does not fire when rawStrings is absent', () => {
+    const config: ParsedMcpConfig = {};
+    const findings = runRuntimeRule(RuleId.EXPOSED_SECRETS, config);
+    expect(findings).toHaveLength(0);
+  });
+});
+
 // ─── INSECURE_TRANSPORT rule ──────────────────────────────────────────────────
 
 describe('INSECURE_TRANSPORT rule', () => {
