@@ -238,8 +238,29 @@ describe('WILDCARD_CORS rule', () => {
     expect(findings[0].severity).toBe(Severity.MEDIUM);
   });
 
+  it('fires on the "null" origin bypass (case-insensitive)', () => {
+    const config: ParsedMcpConfig = {
+      cors: { origins: ['https://app.example.com', 'NULL'] },
+    };
+    const findings = runConfigRule(RuleId.WILDCARD_CORS, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].ruleId).toBe(RuleId.WILDCARD_CORS);
+    // Only the offending origin is reported as evidence, not the safe one.
+    expect(findings[0].evidence).toContain('NULL');
+    expect(findings[0].evidence).not.toContain('app.example.com');
+  });
+
+  it('fires on wildcard-subdomain patterns', () => {
+    const config: ParsedMcpConfig = { cors: { origins: ['https://*.example.com'] } };
+    const findings = runConfigRule(RuleId.WILDCARD_CORS, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].evidence).toContain('*.example.com');
+  });
+
   it('does not fire for specific origins', () => {
-    const config: ParsedMcpConfig = { cors: { origins: ['https://app.example.com'] } };
+    const config: ParsedMcpConfig = {
+      cors: { origins: ['https://app.example.com', 'https://admin.example.com'] },
+    };
     const findings = runConfigRule(RuleId.WILDCARD_CORS, config);
     expect(findings).toHaveLength(0);
   });
