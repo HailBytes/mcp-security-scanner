@@ -132,3 +132,95 @@ describe('YAML parser parity with JSON (issue #19)', () => {
     expect(config.tools?.[0].permissions).toEqual(['shell:exec', 'filesystem:*']);
   });
 });
+
+// ─── Numeric credentials must not be dropped or corrupted ─────────────────────
+//
+// An unquoted all-digit `apiKey`/`token` is parsed as a *number* (by JSON, and
+// by YAML scalar coercion). Previously normalizeConfig only accepted strings,
+// so the credential was silently dropped — yielding a false CRITICAL NO_AUTH on
+// an authenticated config, and skipping WEAK_API_KEY on a weak one. A long
+// numeric string was additionally corrupted by lossy Number() coercion in YAML.
+
+describe('numeric credentials are preserved (not dropped or corrupted)', () => {
+  it('keeps a strong all-digit apiKey — no false NO_AUTH (YAML)', async () => {
+    const yaml = `transport:
+  url: https://x.example.com
+  tls: true
+  auth:
+    apiKey: 92345678901234567890123456789012
+rateLimit:
+  enabled: true
+`;
+    const config = await parseConfig({ configPath: writeFile('numkey.yaml', yaml) });
+    // Preserved exactly as a 32-char string (not corrupted to 9.23e+31).
+    expect(config.transport?.auth?.apiKey).toBe('92345678901234567890123456789012');
+    const report = await scan({ configPath: writeFile('numkey.yaml', yaml) });
+    expect(report.findings.map((f) => f.ruleId)).not.toContain(RuleId.NO_AUTH);
+    expect(report.findings.map((f) => f.ruleId)).not.toContain(RuleId.WEAK_API_KEY);
+  });
+
+  it('flags a weak all-digit token via WEAK_API_KEY (YAML)', async () => {
+    const yaml = `transport:
+  url: https://x.example.com
+  tls: true
+  auth:
+    type: bearer
+    token: 12345678
+rateLimit:
+  enabled: true
+`;
+    const config = await parseConfig({ configPath: writeFile('weak.yaml', yaml) });
+    expect(config.transport?.auth?.token).toBe('12345678');
+    const report = await scan({ configPath: writeFile('weak.yaml', yaml) });
+    expect(report.findings.map((f) => f.ruleId)).toContain(RuleId.WEAK_API_KEY);
+  });
+
+  it('JSON and YAML agree on a numeric credential', async () => {
+    const json = JSON.stringify({
+      transport: { url: 'https://x.example.com', tls: true, auth: { token: 12345678 } },
+      rateLimit: { enabled: true },
+    });
+    const yaml = `transport:
+  url: https://x.example.com
+  tls: true
+  auth:
+    token: 12345678
+rateLimit:
+  enabled: true
+`;
+    const jsonConfig = await parseConfig({ configPath: writeFile('n.json', json) });
+    const yamlConfig = await parseConfig({ configPath: writeFile('n.yaml', yaml) });
+    expect(yamlConfig.transport?.auth?.token).toBe('12345678');
+    expect(jsonConfig.transport?.auth?.token).toBe('12345678');
+  });
+
+  it('still coerces genuine numeric fields, and preserves leading zeros', async () => {
+    const yaml = `transport:
+  url: https://x.example.com
+  tls: true
+  auth:
+    type: bearer
+    token: "007load"
+rateLimit:
+  enabled: true
+  requestsPerMinute: 100
+`;
+    const config = await parseConfig({ configPath: writeFile('num.yaml', yaml) });
+    // requestsPerMinute round-trips exactly → stays a number.
+    expect(config.rateLimit?.requestsPerMinute).toBe(100);
+    expect(typeof config.rateLimit?.requestsPerMinute).toBe('number');
+  });
+
+  it('preserves a leading-zero scalar as a string (no lossy Number coercion)', async () => {
+    const yaml = `transport:
+  url: https://x.example.com
+  tls: true
+  auth:
+    apiKey: "0012345"
+`;
+    // Quoted here to assert the string path; the round-trip guard also keeps an
+    // unquoted 007-style value a string because String(7) !== "007".
+    const config = await parseConfig({ configPath: writeFile('lz.yaml', yaml) });
+    expect(config.transport?.auth?.apiKey).toBe('0012345');
+  });
+});
