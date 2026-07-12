@@ -77,7 +77,12 @@ function parseYamlScalar(value: string): unknown {
   ) {
     return value.slice(1, -1);
   }
-  if (!isNaN(Number(value))) return Number(value);
+  // Only coerce to a number when the value round-trips exactly. This preserves
+  // digit strings that a number cannot represent losslessly — long numeric
+  // credentials/IDs (beyond Number.MAX_SAFE_INTEGER), leading-zero values, and
+  // exponent/hex forms — as strings instead of silently corrupting them.
+  const num = Number(value);
+  if (!isNaN(num) && String(num) === value) return num;
   return value;
 }
 
@@ -208,6 +213,20 @@ function parseSimpleYaml(content: string): Record<string, unknown> {
 }
 
 /**
+ * Coerce a credential value to its string form. A credential written as an
+ * unquoted numeric scalar (e.g. an all-digit `apiKey`/`token`) is parsed as a
+ * number by JSON and by YAML scalar coercion, but it is still a credential.
+ * Returning its string form ensures NO_AUTH and WEAK_API_KEY evaluate it,
+ * instead of treating the field as absent (which yields a false NO_AUTH on an
+ * authenticated config, and silently skips the strength check on a weak one).
+ */
+function coerceCredential(value: unknown): string | undefined {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return undefined;
+}
+
+/**
  * Recursively extract all string values from a parsed object.
  */
 function extractStrings(value: unknown, result: string[] = []): string[] {
@@ -242,8 +261,10 @@ function normalizeConfig(raw: Record<string, unknown>): ParsedMcpConfig {
       const a = t['auth'] as Record<string, unknown>;
       config.transport.auth = {};
       if (typeof a['type'] === 'string') config.transport.auth.type = a['type'];
-      if (typeof a['apiKey'] === 'string') config.transport.auth.apiKey = a['apiKey'];
-      if (typeof a['token'] === 'string') config.transport.auth.token = a['token'];
+      const apiKey = coerceCredential(a['apiKey']);
+      if (apiKey !== undefined) config.transport.auth.apiKey = apiKey;
+      const token = coerceCredential(a['token']);
+      if (token !== undefined) config.transport.auth.token = token;
     }
   }
 
