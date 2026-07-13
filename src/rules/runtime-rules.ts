@@ -3,10 +3,26 @@ import { ParsedMcpConfig } from '../parser.js';
 import { Rule } from './index.js';
 
 const SECRET_PATTERNS: RegExp[] = [
-  /sk-[a-zA-Z0-9]{20,}/i,           // OpenAI API key
-  /ghp_[a-zA-Z0-9]{36}/i,            // GitHub PAT
-  /AKIA[0-9A-Z]{16}/i,               // AWS access key
-  /[Pp]assword\s*[=:]\s*\S{8,}/,     // Password assignment
+  // OpenAI (legacy `sk-…` and project `sk-proj-…`) and Anthropic (`sk-ant-…`)
+  // keys — the char class covers the `-`/`_` used by the newer formats.
+  /sk-[A-Za-z0-9_-]{20,}/,
+  // GitHub tokens: PAT (ghp_), OAuth (gho_), user-to-server (ghu_),
+  // server-to-server (ghs_), and refresh (ghr_).
+  /gh[pousr]_[A-Za-z0-9]{36,}/,
+  // GitHub fine-grained personal access token.
+  /github_pat_[A-Za-z0-9_]{40,}/,
+  // AWS access key ID — long-term (AKIA) and temporary/STS (ASIA).
+  /(?:AKIA|ASIA)[0-9A-Z]{16}/,
+  // Slack tokens (bot/app/personal/refresh/legacy).
+  /xox[baprs]-[A-Za-z0-9-]{10,}/,
+  // Google API key.
+  /AIza[A-Za-z0-9_-]{35}/,
+  // Stripe live secret key (sk_live_) and restricted key (rk_live_).
+  /(?:sk|rk)_live_[A-Za-z0-9]{20,}/,
+  // Private key material in PEM form.
+  /-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----/,
+  // Password assignment (e.g. `password=…`, `password: …`).
+  /[Pp]assword\s*[=:]\s*\S{8,}/,
 ];
 
 export const runtimeRules: Rule[] = [

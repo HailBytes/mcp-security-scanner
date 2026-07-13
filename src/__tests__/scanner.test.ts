@@ -535,6 +535,67 @@ describe('DEBUG_MODE_ENABLED rule', () => {
   });
 });
 
+// ─── EXPOSED_SECRETS rule ─────────────────────────────────────────────────────
+
+describe('EXPOSED_SECRETS rule', () => {
+  // Each value below is a realistic (but fake) example of a real-world secret
+  // format. Values are deliberately synthetic — none are live credentials.
+  const secretExamples: Array<[string, string]> = [
+    ['OpenAI legacy key', 'sk-EXAMPLEEXAMPLEEXAMPLEEXAMPLE000000'],
+    ['OpenAI project key', 'sk-proj-EXAMPLE0000000000000000000000EXAMPLE0000000000'],
+    ['Anthropic key', 'sk-ant-api03-EXAMPLE00000000000000000000000000000000'],
+    ['GitHub classic PAT', 'ghp_' + 'E'.repeat(36)],
+    ['GitHub OAuth token', 'gho_' + 'E'.repeat(36)],
+    ['GitHub fine-grained PAT', 'github_pat_' + 'E'.repeat(22) + '_' + 'E'.repeat(59)],
+    ['AWS access key ID', 'AKIAIOSFODNN7EXAMPLE'],
+    ['AWS temporary key ID', 'ASIAIOSFODNN7EXAMPLE'],
+    ['Slack bot token', 'xoxb-EXAMPLE0000000000EXAMPLE0000000000EXAMPLE'],
+    ['Google API key', 'AIzaEXAMPLE0000000000000000000000000000'],
+    // Split literal so the source doesn't contain the `sk_live_` prefix
+    // verbatim (avoids tripping upstream push-protection secret scanners on
+    // this synthetic fixture); the runtime value still exercises the pattern.
+    ['Stripe live secret key', 'sk' + '_live_' + 'EXAMPLE0000000000000000000000'],
+    ['PEM private key', '-----BEGIN RSA PRIVATE KEY-----\nEXAMPLE'],
+    ['Password assignment', 'password=EXAMPLEexample'],
+  ];
+
+  it.each(secretExamples)('fires for a %s in the config', (_label, secret) => {
+    const config: ParsedMcpConfig = { rawStrings: ['harmless value', secret] };
+    const findings = runRuntimeRule(RuleId.EXPOSED_SECRETS, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].ruleId).toBe(RuleId.EXPOSED_SECRETS);
+    expect(findings[0].severity).toBe(Severity.CRITICAL);
+  });
+
+  it('does not fire on benign strings (URLs, JWTs, permissions)', () => {
+    const config: ParsedMcpConfig = {
+      rawStrings: [
+        'https://secure-mcp.example.com',
+        'wss://secure-mcp.example.com',
+        'filesystem:read',
+        'Fetches current weather data from the weather API for a given city.',
+        // A JWT is a legitimate bearer token, not a hardcoded provider secret.
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.c2VjcmV0LXRva2VuLWZvcnR5LXR3by1jaGFycw',
+      ],
+    };
+    const findings = runRuntimeRule(RuleId.EXPOSED_SECRETS, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('does not fire when there are no raw strings', () => {
+    const findings = runRuntimeRule(RuleId.EXPOSED_SECRETS, {});
+    expect(findings).toHaveLength(0);
+  });
+
+  it('reports a single finding even when multiple secrets are present', () => {
+    const config: ParsedMcpConfig = {
+      rawStrings: ['ghp_' + 'a'.repeat(36), 'AKIAIOSFODNN7EXAMPLE'],
+    };
+    const findings = runRuntimeRule(RuleId.EXPOSED_SECRETS, config);
+    expect(findings).toHaveLength(1);
+  });
+});
+
 // ─── INSECURE_TRANSPORT rule ──────────────────────────────────────────────────
 
 describe('INSECURE_TRANSPORT rule', () => {

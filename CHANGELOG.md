@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Improved
+- `EXPOSED_SECRETS`: broadened credential detection to modern secret formats.
+  The previous patterns only matched legacy OpenAI keys (`sk-…`), classic GitHub
+  PATs (`ghp_…`), AWS access keys, and `password=` assignments — so a config
+  containing an OpenAI **project** key (`sk-proj-…`), an Anthropic key
+  (`sk-ant-…`), a GitHub OAuth/fine-grained token (`gho_…` / `github_pat_…`),
+  a Slack token (`xox…`), a Google API key (`AIza…`), a Stripe live key
+  (`sk_live_…`), or PEM private-key material passed the gate with **zero
+  findings**. All of these are now detected. Structured JWTs (legitimate bearer
+  tokens) are still not flagged. Added test coverage for `EXPOSED_SECRETS`, which
+  previously had none.
+
 ### Fixed
 - URL/endpoint mode no longer produces false findings (#27). Scanning a URL
   previously ran every config rule against an effectively empty config, so any
