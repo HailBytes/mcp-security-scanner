@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- `OVERPRIVILEGED_TOOL`: now flags a `shell:*` namespace wildcard, not just the
+  exact `shell:exec` permission. A tool granted `shell:*` — a strict superset of
+  `shell:exec` and full arbitrary command execution on the host — previously
+  produced zero findings and passed the gate, while the same tool with
+  `shell:exec` was correctly flagged HIGH. The rule now treats a dangerous
+  namespace's wildcard as at least as dangerous as its specific permission.
+  Wildcards owned by a dedicated rule (`filesystem:*` → `UNRESTRICTED_FILE_ACCESS`)
+  are not double-counted.
 - URL/endpoint mode no longer produces false findings (#27). Scanning a URL
   previously ran every config rule against an effectively empty config, so any
   endpoint always emitted a CRITICAL `NO_AUTH` and a MEDIUM `MISSING_RATE_LIMIT`

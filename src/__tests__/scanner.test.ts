@@ -288,9 +288,35 @@ describe('OVERPRIVILEGED_TOOL rule', () => {
     expect(findings).toHaveLength(1);
   });
 
+  it('fires for a tool with a shell:* namespace wildcard (superset of shell:exec)', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'runner', permissions: ['shell:*'] }],
+    };
+    const findings = runConfigRule(RuleId.OVERPRIVILEGED_TOOL, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].ruleId).toBe(RuleId.OVERPRIVILEGED_TOOL);
+    expect(findings[0].evidence).toContain('shell:*');
+  });
+
+  it('does not double-count filesystem:* (owned by UNRESTRICTED_FILE_ACCESS)', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'fs', permissions: ['filesystem:*'] }],
+    };
+    const findings = runConfigRule(RuleId.OVERPRIVILEGED_TOOL, config);
+    expect(findings).toHaveLength(0);
+  });
+
   it('does not fire for safe permissions', () => {
     const config: ParsedMcpConfig = {
       tools: [{ name: 'safe-tool', permissions: ['filesystem:read'] }],
+    };
+    const findings = runConfigRule(RuleId.OVERPRIVILEGED_TOOL, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('does not fire for a non-dangerous namespace wildcard (e.g. logging:*)', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'logger', permissions: ['logging:*'] }],
     };
     const findings = runConfigRule(RuleId.OVERPRIVILEGED_TOOL, config);
     expect(findings).toHaveLength(0);

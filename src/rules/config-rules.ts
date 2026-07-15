@@ -4,6 +4,34 @@ import { Rule } from './index.js';
 
 const DANGEROUS_PERMISSIONS = ['filesystem:write', 'network:*', 'shell:exec'];
 
+/**
+ * Namespaces whose wildcard (`ns:*`) is already reported by a dedicated rule,
+ * so OVERPRIVILEGED_TOOL should not also flag it (avoids double-counting the
+ * same issue). `filesystem:*` is owned by UNRESTRICTED_FILE_ACCESS.
+ */
+const NAMESPACES_WITH_DEDICATED_RULE = new Set(['filesystem']);
+
+/**
+ * True when a permission is dangerous. A permission matches when it is listed
+ * explicitly in DANGEROUS_PERMISSIONS, or when it is a namespace wildcard
+ * (`shell:*`) that subsumes a dangerous permission in that namespace — a
+ * wildcard grants everything the specific permission does, so it is at least as
+ * dangerous. This closes the gap where `shell:*` (a superset of `shell:exec`)
+ * slipped past the exact-match check and left a tool with full shell access
+ * completely unflagged. Wildcards for namespaces with their own dedicated rule
+ * (e.g. `filesystem:*` → UNRESTRICTED_FILE_ACCESS) are skipped here.
+ */
+function isDangerousPermission(permission: string): boolean {
+  if (DANGEROUS_PERMISSIONS.includes(permission)) return true;
+  const wildcardMatch = permission.match(/^([^:]+):\*$/);
+  if (wildcardMatch) {
+    const namespace = wildcardMatch[1];
+    if (NAMESPACES_WITH_DEDICATED_RULE.has(namespace)) return false;
+    return DANGEROUS_PERMISSIONS.some((p) => p.startsWith(namespace + ':'));
+  }
+  return false;
+}
+
 export const configRules: Rule[] = [
   {
     id: RuleId.WILDCARD_CORS,
@@ -68,9 +96,7 @@ export const configRules: Rule[] = [
       const findings: Finding[] = [];
       for (const tool of config.tools ?? []) {
         if (!tool.permissions || tool.permissions.length === 0) continue;
-        const matched = tool.permissions.filter((p) =>
-          DANGEROUS_PERMISSIONS.includes(p)
-        );
+        const matched = tool.permissions.filter(isDangerousPermission);
         if (matched.length > 0) {
           findings.push({
             ruleId: RuleId.OVERPRIVILEGED_TOOL,
