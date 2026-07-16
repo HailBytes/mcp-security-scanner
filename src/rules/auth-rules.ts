@@ -1,6 +1,7 @@
 import { Finding, RuleId, Severity } from '../types.js';
 import { ParsedMcpConfig } from '../parser.js';
 import { Rule } from './index.js';
+import { isLoopbackHost } from './loopback.js';
 
 /**
  * Auth `type` values that explicitly mean "no authentication". A config that
@@ -107,9 +108,14 @@ export const authRules: Rule[] = [
       // avoids a false positive on wss:// and double-counting on ws://.
       const isWebSocket = url?.startsWith('ws://') || url?.startsWith('wss://');
 
+      // Loopback traffic (localhost / 127.0.0.0/8 / ::1) never leaves the host,
+      // so there is no network path on which plaintext HTTP could be
+      // intercepted. Exempt it, mirroring W3C Secure Contexts, rather than
+      // firing a HIGH on the common local-dev setup.
       if (
         url &&
         !isWebSocket &&
+        !isLoopbackHost(url) &&
         (url.startsWith('http://') || (!isTls && !url.startsWith('https://')))
       ) {
         return [

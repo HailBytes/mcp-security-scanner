@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- `MISSING_TLS` / `INSECURE_TRANSPORT`: no longer fire a false HIGH on loopback
+  hosts (#48). A plaintext `http://localhost` / `http://127.0.0.1` / `http://[::1]`
+  (or `ws://` equivalent) transport never crosses a network segment, so there is
+  nothing to intercept — yet every such config previously earned a HIGH and, under
+  `--fail-on=high` / `--exit-code`, failed the build on the most common local-dev
+  MCP setup. Loopback hosts (`localhost` and `*.localhost`, `127.0.0.0/8`, `::1`,
+  `0.0.0.0`) are now exempt from both transport rules, mirroring the W3C Secure
+  Contexts "potentially trustworthy" carve-out. Non-loopback `http://` / `ws://`
+  URLs still fire HIGH; `https://` / `wss://` still pass — no regression.
 - URL/endpoint mode no longer produces false findings (#27). Scanning a URL
   previously ran every config rule against an effectively empty config, so any
   endpoint always emitted a CRITICAL `NO_AUTH` and a MEDIUM `MISSING_RATE_LIMIT`

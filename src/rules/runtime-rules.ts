@@ -1,6 +1,7 @@
 import { Finding, RuleId, Severity } from '../types.js';
 import { ParsedMcpConfig } from '../parser.js';
 import { Rule } from './index.js';
+import { isLoopbackHost } from './loopback.js';
 
 const SECRET_PATTERNS: RegExp[] = [
   /sk-[a-zA-Z0-9]{20,}/i,           // OpenAI API key
@@ -16,7 +17,10 @@ export const runtimeRules: Rule[] = [
     title: 'Insecure WebSocket Transport (ws://)',
     check(config: ParsedMcpConfig): Finding[] {
       const url = config.transport?.url;
-      if (url && url.startsWith('ws://')) {
+      // A loopback WebSocket (ws://localhost, ws://127.0.0.1) stays on the host
+      // and has no interceptable network segment — exempt it, matching the
+      // MISSING_TLS treatment of plaintext loopback HTTP.
+      if (url && url.startsWith('ws://') && !isLoopbackHost(url)) {
         return [
           {
             ruleId: RuleId.INSECURE_TRANSPORT,

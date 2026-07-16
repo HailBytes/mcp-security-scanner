@@ -227,6 +227,83 @@ describe('MISSING_TLS rule', () => {
   });
 });
 
+// ─── Loopback transport exemption (issue #48) ────────────────────────────────
+
+describe('loopback transport exemption', () => {
+  // MISSING_TLS must not fire for plaintext HTTP on a loopback host: the traffic
+  // never leaves the machine, so there is no interceptable network segment.
+  it.each([
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://127.5.5.5:3000',
+    'http://[::1]:3000',
+    'http://0.0.0.0:3000',
+    'http://api.localhost:3000',
+  ])('MISSING_TLS does not fire for loopback URL %s', (url) => {
+    const config: ParsedMcpConfig = { serverUrl: url, transport: { url, tls: false } };
+    const findings = runAuthRule(RuleId.MISSING_TLS, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('MISSING_TLS still fires for a non-loopback http:// host', () => {
+    const config: ParsedMcpConfig = {
+      serverUrl: 'http://public.example.com',
+      transport: { url: 'http://public.example.com', tls: false },
+    };
+    const findings = runAuthRule(RuleId.MISSING_TLS, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].ruleId).toBe(RuleId.MISSING_TLS);
+  });
+
+  // A host that merely starts with "localhost"/"127." text but is a different
+  // registered domain must not be treated as loopback.
+  it('MISSING_TLS still fires for a lookalike host (localhost.evil.com)', () => {
+    const config: ParsedMcpConfig = {
+      serverUrl: 'http://localhost.evil.com',
+      transport: { url: 'http://localhost.evil.com', tls: false },
+    };
+    const findings = runAuthRule(RuleId.MISSING_TLS, config);
+    expect(findings).toHaveLength(1);
+  });
+
+  // INSECURE_TRANSPORT must not fire for a loopback WebSocket.
+  it.each([
+    'ws://localhost:8080',
+    'ws://127.0.0.1:8080',
+    'ws://[::1]:8080',
+  ])('INSECURE_TRANSPORT does not fire for loopback URL %s', (url) => {
+    const config: ParsedMcpConfig = { transport: { url } };
+    const findings = runRuntimeRule(RuleId.INSECURE_TRANSPORT, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('INSECURE_TRANSPORT still fires for a non-loopback ws:// host', () => {
+    const config: ParsedMcpConfig = {
+      transport: { url: 'ws://public.example.com/mcp' },
+    };
+    const findings = runRuntimeRule(RuleId.INSECURE_TRANSPORT, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].ruleId).toBe(RuleId.INSECURE_TRANSPORT);
+  });
+
+  // End-to-end: a fully-secured loopback dev config (authed, rate-limited) must
+  // pass the default gate instead of failing on a false HIGH.
+  it('a secure loopback config passes the scan (no HIGH transport finding)', async () => {
+    const path = writeTempConfig({
+      serverUrl: 'http://localhost:3000',
+      transport: {
+        url: 'http://127.0.0.1:3000',
+        auth: { type: 'bearer', token: 'a'.repeat(36) },
+      },
+      rateLimit: { enabled: true, requestsPerMinute: 60 },
+    });
+    const report = await scan({ configPath: path });
+    expect(report.findings.map((f) => f.ruleId)).not.toContain(RuleId.MISSING_TLS);
+    expect(report.summary.high).toBe(0);
+    expect(report.passed).toBe(true);
+  });
+});
+
 // ─── WILDCARD_CORS ────────────────────────────────────────────────────────────
 
 describe('WILDCARD_CORS rule', () => {
