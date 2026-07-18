@@ -563,6 +563,94 @@ describe('INSECURE_TRANSPORT rule', () => {
   });
 });
 
+// ─── Default gate semantics (issue #47) ───────────────────────────────────────
+
+describe('default gate (passed) semantics', () => {
+  it('FAILS when the only findings are HIGH severity (3 × HIGH)', async () => {
+    // TLS + authenticated + rate-limited: the only issues are three
+    // overprivileged/unrestricted tools, all HIGH. Aggregate score is 45
+    // (< 50), so the old gate reported PASSED. HIGH findings must veto.
+    const path = writeTempConfig({
+      serverUrl: 'https://x.example.com',
+      transport: {
+        url: 'https://x.example.com',
+        tls: true,
+        auth: { type: 'bearer', token: 'a'.repeat(40) },
+      },
+      rateLimit: { enabled: true, requestsPerMinute: 60 },
+      tools: [
+        { name: 'runner', description: 'Runs tasks', permissions: ['shell:exec'] },
+        { name: 'net', description: 'Network', permissions: ['network:*'] },
+        { name: 'fs', description: 'Files', permissions: ['filesystem:*'] },
+      ],
+    });
+    const report = await scan({ configPath: path });
+    expect(report.summary.critical).toBe(0);
+    expect(report.summary.high).toBeGreaterThan(0);
+    expect(report.passed).toBe(false);
+  });
+
+  it('FAILS when a single HIGH finding exists', async () => {
+    // Authenticated + TLS + rate-limited, one overprivileged tool (HIGH).
+    const path = writeTempConfig({
+      transport: {
+        url: 'https://x.example.com',
+        tls: true,
+        auth: { type: 'bearer', token: 'a'.repeat(40) },
+      },
+      rateLimit: { enabled: true, requestsPerMinute: 60 },
+      tools: [{ name: 'runner', permissions: ['shell:exec'] }],
+    });
+    const report = await scan({ configPath: path });
+    expect(report.summary.critical).toBe(0);
+    expect(report.summary.high).toBe(1);
+    expect(report.passed).toBe(false);
+  });
+
+  it('FAILS when a CRITICAL finding exists (no regression)', async () => {
+    const path = writeTempConfig({
+      transport: { url: 'https://example.com', tls: true },
+      rateLimit: { enabled: true },
+    });
+    const report = await scan({ configPath: path });
+    expect(report.summary.critical).toBeGreaterThan(0);
+    expect(report.passed).toBe(false);
+  });
+
+  it('PASSES a clean config (no CRITICAL/HIGH, score < 50)', async () => {
+    const path = writeTempConfig({
+      transport: {
+        url: 'https://example.com',
+        tls: true,
+        auth: { type: 'bearer', token: 'a'.repeat(40) },
+      },
+      rateLimit: { enabled: true, requestsPerMinute: 60 },
+      tools: [
+        { name: 'reader', description: 'Reads app data', permissions: ['filesystem:read'] },
+      ],
+    });
+    const report = await scan({ configPath: path });
+    expect(report.summary.critical).toBe(0);
+    expect(report.summary.high).toBe(0);
+    expect(report.passed).toBe(true);
+  });
+
+  it('still PASSES when only sub-HIGH findings exist (e.g. a single MEDIUM)', async () => {
+    // Authenticated + TLS, no rate limit → MISSING_RATE_LIMIT (MEDIUM) only.
+    const path = writeTempConfig({
+      transport: {
+        url: 'https://example.com',
+        tls: true,
+        auth: { type: 'bearer', token: 'a'.repeat(40) },
+      },
+    });
+    const report = await scan({ configPath: path, rules: [RuleId.MISSING_RATE_LIMIT] });
+    expect(report.summary.high).toBe(0);
+    expect(report.summary.medium).toBeGreaterThan(0);
+    expect(report.passed).toBe(true);
+  });
+});
+
 // ─── failOn behaviour ─────────────────────────────────────────────────────────
 
 describe('failOn config', () => {

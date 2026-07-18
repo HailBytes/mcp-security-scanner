@@ -61,6 +61,12 @@ console.log(report.score);     // 0–100 risk score (higher = riskier)
 console.log(report.passed);    // boolean — use as CI gate
 ```
 
+> **Default gate semantics.** `report.passed` (and the CLI exit code with no
+> flags) is `true` only when the config has **no CRITICAL and no HIGH findings**
+> and its risk score is under 50. Any single CRITICAL or HIGH finding fails the
+> gate. Use `--fail-on=<severity>` to lower the threshold (e.g. `--fail-on=medium`)
+> or `--exit-code` to fail on any finding at all.
+
 ---
 
 ## What It Checks

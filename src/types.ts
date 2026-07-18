@@ -80,7 +80,7 @@ export interface SecurityReport {
   findings: Finding[];
   /** Risk score 0 (safest) – 100 (most risk). */
   score: number;
-  /** True when score < 50 and no critical findings. */
+  /** True when score < 50 and there are no CRITICAL or HIGH findings. */
   passed: boolean;
   summary: SeveritySummary;
   scannedAt: string;
