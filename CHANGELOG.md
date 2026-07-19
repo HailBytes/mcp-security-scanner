@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Default CI/CD gate now fails on HIGH findings, not just CRITICAL (#47).**
+  The pass decision was `score < 50 && no CRITICAL`; because HIGH findings are
+  weighted 15 and the threshold is 50, a config could accumulate **three HIGH
+  findings and still report `PASSED` / exit 0** (e.g. tools granted
+  `shell:exec`, `network:*`, and `filesystem:*` at once). HIGH findings are real
+  compromise vectors, so a single CRITICAL **or** HIGH finding now vetoes the
+  default gate: `passed = score < 50 && no CRITICAL && no HIGH`. This is a
+  deliberate tightening — pipelines that were green *because of* HIGH findings
+  will now turn red. To keep the old behaviour explicitly, gate on the score or
+  use `--fail-on=critical`. Sub-HIGH findings (MEDIUM/LOW) still pass by default;
+  use `--fail-on=medium` / `--exit-code` for stricter gating.
+
 ### Fixed
 - URL/endpoint mode no longer produces false findings (#27). Scanning a URL
   previously ran every config rule against an effectively empty config, so any

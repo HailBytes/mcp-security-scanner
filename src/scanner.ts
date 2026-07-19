@@ -89,8 +89,15 @@ export async function scan(config: ScanConfig): Promise<SecurityReport> {
 
   const score = computeScore(findings);
   const summary = computeSummary(findings);
-  const hasCritical = summary.critical > 0;
-  let passed = score < 50 && !hasCritical;
+
+  // Default gate: a config passes only when it has no CRITICAL and no HIGH
+  // findings, and its aggregate risk score is under 50. HIGH findings
+  // (overprivileged tools, missing TLS, weak credentials, prompt-injection
+  // surface) are real compromise vectors, so — like CRITICAL — a single one
+  // vetoes the pass. Without the HIGH veto, up to three HIGH findings
+  // (3 × 15 = 45) sit under the 50-point line and the gate would report a
+  // false PASS on a genuinely dangerous config. See #47.
+  let passed = score < 50 && summary.critical === 0 && summary.high === 0;
 
   // Honour failOn: force passed=false if any finding meets or exceeds the threshold
   if (config.failOn !== undefined) {
