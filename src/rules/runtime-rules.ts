@@ -1,6 +1,7 @@
 import { Finding, RuleId, Severity } from '../types.js';
 import { ParsedMcpConfig } from '../parser.js';
 import { Rule } from './index.js';
+import { isLoopbackUrl } from '../net.js';
 
 const SECRET_PATTERNS: RegExp[] = [
   /sk-[a-zA-Z0-9]{20,}/i,           // OpenAI API key
@@ -16,7 +17,10 @@ export const runtimeRules: Rule[] = [
     title: 'Insecure WebSocket Transport (ws://)',
     check(config: ParsedMcpConfig): Finding[] {
       const url = config.transport?.url;
-      if (url && url.startsWith('ws://')) {
+      // Loopback carve-out (issue #48): a ws:// socket to localhost / 127.0.0.0/8
+      // / ::1 never leaves the machine, so it is not a cleartext-over-the-network
+      // risk. Non-loopback ws:// still fires HIGH.
+      if (url && url.startsWith('ws://') && !isLoopbackUrl(url)) {
         return [
           {
             ruleId: RuleId.INSECURE_TRANSPORT,

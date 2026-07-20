@@ -225,6 +225,42 @@ describe('MISSING_TLS rule', () => {
     const findings = runAuthRule(RuleId.MISSING_TLS, config);
     expect(findings).toHaveLength(0);
   });
+
+  // Loopback carve-out (issue #48): plaintext HTTP to a loopback host never
+  // traverses a network, so it must not be flagged as a TLS risk.
+  it.each([
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://[::1]:3000',
+  ])('does not fire for loopback URL "%s"', (url) => {
+    const config: ParsedMcpConfig = {
+      serverUrl: url,
+      transport: { url, tls: false },
+    };
+    const findings = runAuthRule(RuleId.MISSING_TLS, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  // Regression guard: a non-loopback http:// host still fires (no over-broad
+  // exemption from the loopback carve-out).
+  it('still fires for a non-loopback http:// host', () => {
+    const config: ParsedMcpConfig = {
+      serverUrl: 'http://public-server.example.com',
+      transport: { url: 'http://public-server.example.com', tls: false },
+    };
+    const findings = runAuthRule(RuleId.MISSING_TLS, config);
+    expect(findings).toHaveLength(1);
+  });
+
+  // 0.0.0.0 binds all interfaces (reachable over the network) — not loopback.
+  it('still fires for http://0.0.0.0 (all-interfaces bind, not loopback)', () => {
+    const config: ParsedMcpConfig = {
+      serverUrl: 'http://0.0.0.0:3000',
+      transport: { url: 'http://0.0.0.0:3000', tls: false },
+    };
+    const findings = runAuthRule(RuleId.MISSING_TLS, config);
+    expect(findings).toHaveLength(1);
+  });
 });
 
 // ─── WILDCARD_CORS ────────────────────────────────────────────────────────────
@@ -435,6 +471,23 @@ describe('scan() integration', () => {
     expect(report.findings.every((f) => f.ruleId === RuleId.MISSING_TLS)).toBe(true);
     expect(report.findings.length).toBeGreaterThan(0);
   });
+
+  // Issue #48 repro: a secure, authenticated, rate-limited loopback dev server
+  // must pass the gate — including under the stricter --fail-on=high threshold.
+  it('a secure loopback (http://localhost) config passes the gate', async () => {
+    const path = writeTempConfig({
+      serverUrl: 'http://localhost:3000',
+      transport: {
+        url: 'http://127.0.0.1:3000',
+        auth: { type: 'bearer', token: 'abcdefghijklmnopqrstuvwxyz0123456789' },
+      },
+      rateLimit: { enabled: true, requestsPerMinute: 60 },
+    });
+    const report = await scan({ configPath: path, failOn: Severity.HIGH });
+    expect(report.findings.map((f) => f.ruleId)).not.toContain(RuleId.MISSING_TLS);
+    expect(report.summary.high).toBe(0);
+    expect(report.passed).toBe(true);
+  });
 });
 
 // ─── URL mode (issue #27) ─────────────────────────────────────────────────────
@@ -560,6 +613,28 @@ describe('INSECURE_TRANSPORT rule', () => {
     const config: ParsedMcpConfig = {};
     const findings = runRuntimeRule(RuleId.INSECURE_TRANSPORT, config);
     expect(findings).toHaveLength(0);
+  });
+
+  // Loopback carve-out (issue #48): a ws:// socket to a loopback host stays on
+  // the machine, so it must not be flagged.
+  it.each([
+    'ws://localhost:8080',
+    'ws://127.0.0.1:8080/mcp',
+    'ws://[::1]:8080',
+  ])('does not fire for loopback URL "%s"', (url) => {
+    const config: ParsedMcpConfig = { transport: { url } };
+    const findings = runRuntimeRule(RuleId.INSECURE_TRANSPORT, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  // Regression guard: non-loopback ws:// still fires HIGH.
+  it('still fires for a non-loopback ws:// host', () => {
+    const config: ParsedMcpConfig = {
+      transport: { url: 'ws://public-server.example.com/mcp' },
+    };
+    const findings = runRuntimeRule(RuleId.INSECURE_TRANSPORT, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].severity).toBe(Severity.HIGH);
   });
 });
 

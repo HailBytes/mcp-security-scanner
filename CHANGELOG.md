@@ -21,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use `--fail-on=medium` / `--exit-code` for stricter gating.
 
 ### Fixed
+- `MISSING_TLS` / `INSECURE_TRANSPORT` no longer fire a false HIGH on loopback
+  hosts (#48). Plaintext `http://localhost` / `http://127.0.0.1` / `http://[::1]`
+  (and the `ws://` equivalents) never traverse a network, so they are not a
+  transport-interception risk — yet every local dev server (Claude Desktop,
+  Cursor, VS Code) got a HIGH finding that failed the build under
+  `--fail-on=high` / `--exit-code`. Loopback transports are now exempted, mirroring
+  the W3C Secure Contexts "potentially trustworthy" carve-out. Non-loopback
+  `http://` / `ws://` still fire HIGH, and `0.0.0.0` (an all-interfaces bind that
+  *is* reachable over the network) is deliberately not exempted.
 - URL/endpoint mode no longer produces false findings (#27). Scanning a URL
   previously ran every config rule against an effectively empty config, so any
   endpoint always emitted a CRITICAL `NO_AUTH` and a MEDIUM `MISSING_RATE_LIMIT`
