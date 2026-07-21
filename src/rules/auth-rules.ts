@@ -1,6 +1,7 @@
 import { Finding, RuleId, Severity } from '../types.js';
 import { ParsedMcpConfig } from '../parser.js';
 import { Rule } from './index.js';
+import { isLoopbackHost } from './net.js';
 
 /**
  * Auth `type` values that explicitly mean "no authentication". A config that
@@ -107,9 +108,15 @@ export const authRules: Rule[] = [
       // avoids a false positive on wss:// and double-counting on ws://.
       const isWebSocket = url?.startsWith('ws://') || url?.startsWith('wss://');
 
+      // Loopback hosts (localhost / 127.0.0.0/8 / ::1) never put traffic on a
+      // network, so plaintext HTTP to them is not a transport-interception risk
+      // — the modal local-dev MCP setup. Exempt them to avoid a false HIGH that
+      // would fail the gate on the most common configuration. (Wildcard binds
+      // like 0.0.0.0 are NOT loopback and still fire; see isLoopbackHost.)
       if (
         url &&
         !isWebSocket &&
+        !isLoopbackHost(url) &&
         (url.startsWith('http://') || (!isTls && !url.startsWith('https://')))
       ) {
         return [

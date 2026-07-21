@@ -225,6 +225,32 @@ describe('MISSING_TLS rule', () => {
     const findings = runAuthRule(RuleId.MISSING_TLS, config);
     expect(findings).toHaveLength(0);
   });
+
+  // Loopback hosts never put traffic on a network, so plaintext HTTP there is
+  // not a transport-interception risk (#48). This is the modal local-dev setup.
+  it.each([
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.53',
+    'http://[::1]:3000',
+    'http://api.localhost:8080',
+  ])('does not fire for loopback host %s', (url) => {
+    const config: ParsedMcpConfig = { serverUrl: url, transport: { url } };
+    const findings = runAuthRule(RuleId.MISSING_TLS, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  // 0.0.0.0 / [::] are wildcard binds reachable on every interface — not
+  // loopback — so plaintext there must still fire.
+  it.each(['http://0.0.0.0:3000', 'http://[::]:3000'])(
+    'still fires for wildcard bind address %s',
+    (url) => {
+      const config: ParsedMcpConfig = { serverUrl: url, transport: { url } };
+      const findings = runAuthRule(RuleId.MISSING_TLS, config);
+      expect(findings).toHaveLength(1);
+      expect(findings[0].ruleId).toBe(RuleId.MISSING_TLS);
+    }
+  );
 });
 
 // ─── WILDCARD_CORS ────────────────────────────────────────────────────────────
@@ -560,6 +586,59 @@ describe('INSECURE_TRANSPORT rule', () => {
     const config: ParsedMcpConfig = {};
     const findings = runRuntimeRule(RuleId.INSECURE_TRANSPORT, config);
     expect(findings).toHaveLength(0);
+  });
+
+  // Loopback WebSockets never traverse a network — exempt, mirroring MISSING_TLS (#48).
+  it.each([
+    'ws://localhost:8080',
+    'ws://127.0.0.1:8080',
+    'ws://[::1]:8080/mcp',
+  ])('does not fire for loopback host %s', (url) => {
+    const config: ParsedMcpConfig = { transport: { url } };
+    const findings = runRuntimeRule(RuleId.INSECURE_TRANSPORT, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('still fires for a wildcard bind ws://0.0.0.0 (not loopback)', () => {
+    const config: ParsedMcpConfig = { transport: { url: 'ws://0.0.0.0:8080' } };
+    const findings = runRuntimeRule(RuleId.INSECURE_TRANSPORT, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].ruleId).toBe(RuleId.INSECURE_TRANSPORT);
+  });
+});
+
+// ─── Loopback transport exemption, end-to-end (issue #48) ─────────────────────
+
+describe('loopback transport exemption (issue #48)', () => {
+  it('a secure http://localhost dev config passes even under --fail-on=high', async () => {
+    // Authenticated, rate-limited, bound to loopback — the modal local dev
+    // setup. Before #48 this earned a HIGH MISSING_TLS and failed the gate.
+    const path = writeTempConfig({
+      serverUrl: 'http://localhost:3000',
+      transport: {
+        url: 'http://127.0.0.1:3000',
+        auth: { type: 'bearer', token: 'abcdefghijklmnopqrstuvwxyz0123456789' },
+      },
+      rateLimit: { enabled: true, requestsPerMinute: 60 },
+    });
+    const report = await scan({ configPath: path, failOn: Severity.HIGH });
+    expect(report.findings.map((f) => f.ruleId)).not.toContain(RuleId.MISSING_TLS);
+    expect(report.summary.high).toBe(0);
+    expect(report.passed).toBe(true);
+  });
+
+  it('a plain http:// public config still fails (no regression)', async () => {
+    const path = writeTempConfig({
+      serverUrl: 'http://public.example.com:3000',
+      transport: {
+        url: 'http://public.example.com:3000',
+        auth: { type: 'bearer', token: 'abcdefghijklmnopqrstuvwxyz0123456789' },
+      },
+      rateLimit: { enabled: true, requestsPerMinute: 60 },
+    });
+    const report = await scan({ configPath: path, failOn: Severity.HIGH });
+    expect(report.findings.map((f) => f.ruleId)).toContain(RuleId.MISSING_TLS);
+    expect(report.passed).toBe(false);
   });
 });
 

@@ -76,6 +76,14 @@ console.log(report.passed);    // boolean — use as CI gate
 - **Prompt injection surface** — tool descriptions or output paths susceptible to injection
 - **Unsafe defaults** — insecure transport defaults, verbose error exposure, CORS wildcards
 
+> **Loopback is exempt from transport-security rules.** `MISSING_TLS` and
+> `INSECURE_TRANSPORT` do not fire for loopback hosts (`localhost` / `*.localhost`,
+> `127.0.0.0/8`, and IPv6 `::1`) — traffic there never leaves the machine, so
+> plaintext `http://`/`ws://` is not a network-interception risk. This mirrors the
+> W3C Secure Contexts loopback carve-out and keeps local dev configs green.
+> Wildcard bind addresses (`0.0.0.0`, `[::]`) are **not** loopback and are still
+> flagged, since they expose the server on every interface.
+
 ---
 
 ## See Also
