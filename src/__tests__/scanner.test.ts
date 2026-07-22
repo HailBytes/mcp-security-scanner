@@ -225,6 +225,32 @@ describe('MISSING_TLS rule', () => {
     const findings = runAuthRule(RuleId.MISSING_TLS, config);
     expect(findings).toHaveLength(0);
   });
+
+  // Loopback carve-out (issue #48): plaintext HTTP to a loopback host never
+  // traverses a network, so it is not a transport-security risk.
+  it.each([
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://127.5.6.7:3000',
+    'http://[::1]:3000',
+    'http://0.0.0.0:3000',
+    'http://app.localhost:3000',
+  ])('does not fire for loopback URL %s', (url) => {
+    const config: ParsedMcpConfig = { transport: { url, tls: false } };
+    const findings = runAuthRule(RuleId.MISSING_TLS, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  // Regression guard: a public http:// host must still fire (no over-broad
+  // loopback match on hosts that merely contain "localhost"/"127").
+  it.each([
+    'http://not-localhost.example.com',
+    'http://127.0.0.1.example.com',
+  ])('still fires for non-loopback URL %s', (url) => {
+    const config: ParsedMcpConfig = { transport: { url, tls: false } };
+    const findings = runAuthRule(RuleId.MISSING_TLS, config);
+    expect(findings).toHaveLength(1);
+  });
 });
 
 // ─── WILDCARD_CORS ────────────────────────────────────────────────────────────
@@ -560,6 +586,26 @@ describe('INSECURE_TRANSPORT rule', () => {
     const config: ParsedMcpConfig = {};
     const findings = runRuntimeRule(RuleId.INSECURE_TRANSPORT, config);
     expect(findings).toHaveLength(0);
+  });
+
+  // Loopback carve-out (issue #48): a ws:// socket to a loopback host never
+  // leaves the machine, so it is not a cleartext-over-the-network risk.
+  it.each([
+    'ws://localhost:8080',
+    'ws://127.0.0.1:8080',
+    'ws://[::1]:8080',
+  ])('does not fire for loopback URL %s', (url) => {
+    const config: ParsedMcpConfig = { transport: { url } };
+    const findings = runRuntimeRule(RuleId.INSECURE_TRANSPORT, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('still fires for a non-loopback ws:// host', () => {
+    const config: ParsedMcpConfig = {
+      transport: { url: 'ws://ws.example.com:8080/mcp' },
+    };
+    const findings = runRuntimeRule(RuleId.INSECURE_TRANSPORT, config);
+    expect(findings).toHaveLength(1);
   });
 });
 
