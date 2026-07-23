@@ -21,6 +21,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use `--fail-on=medium` / `--exit-code` for stricter gating.
 
 ### Fixed
+- **`OVERPRIVILEGED_TOOL` now flags wildcard permission grants, not just exact
+  strings.** The rule matched permissions against an exact list
+  (`filesystem:write`, `network:*`, `shell:exec`), so a **broader** grant slipped
+  through undetected: `shell:*` (strictly more powerful than the flagged
+  `shell:exec`), `process:*`, `exec:*`, `system:*`, and even a global `*` all
+  passed the gate silently. A tool granted `shell:*` was matched by **no rule at
+  all**. The rule now treats a global `*` and a namespace wildcard over a
+  sensitive namespace (`shell`, `network`, `process`, `exec`, `system`) as
+  dangerous, in addition to the existing explicit permissions. `filesystem`
+  wildcards remain owned by `UNRESTRICTED_FILE_ACCESS` to avoid double-counting,
+  and narrow benign grants (e.g. `network:read`) are unaffected.
 - URL/endpoint mode no longer produces false findings (#27). Scanning a URL
   previously ran every config rule against an effectively empty config, so any
   endpoint always emitted a CRITICAL `NO_AUTH` and a MEDIUM `MISSING_RATE_LIMIT`

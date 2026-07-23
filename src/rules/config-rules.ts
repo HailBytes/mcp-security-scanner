@@ -4,6 +4,36 @@ import { Rule } from './index.js';
 
 const DANGEROUS_PERMISSIONS = ['filesystem:write', 'network:*', 'shell:exec'];
 
+/**
+ * Namespaces where a wildcard grant (`shell:*`) is at least as dangerous as the
+ * specific dangerous action within it (`shell:exec`). A scanner that flags the
+ * narrow grant but not the broader wildcard is a false negative — the wildcard
+ * subsumes it and more. `filesystem` is deliberately excluded: filesystem
+ * wildcards (and read+write) are owned by UNRESTRICTED_FILE_ACCESS, so listing
+ * it here too would double-count the same tool.
+ */
+const DANGEROUS_WILDCARD_NAMESPACES = ['shell', 'network', 'process', 'exec', 'system'];
+
+/**
+ * Decide whether a single permission string grants a dangerous capability.
+ *
+ * Matches, in order of breadth:
+ *  - a global wildcard (`*`), which grants every capability;
+ *  - a namespace wildcard (`shell:*`) over a sensitive namespace;
+ *  - an explicit dangerous permission (`shell:exec`, `filesystem:write`, …).
+ */
+function isDangerousPermission(permission: string): boolean {
+  const p = permission.trim();
+  if (p === '*') return true;
+  if (DANGEROUS_PERMISSIONS.includes(p)) return true;
+  const colon = p.indexOf(':');
+  if (colon !== -1 && p.slice(colon + 1) === '*') {
+    const namespace = p.slice(0, colon);
+    if (DANGEROUS_WILDCARD_NAMESPACES.includes(namespace)) return true;
+  }
+  return false;
+}
+
 export const configRules: Rule[] = [
   {
     id: RuleId.WILDCARD_CORS,
@@ -68,9 +98,7 @@ export const configRules: Rule[] = [
       const findings: Finding[] = [];
       for (const tool of config.tools ?? []) {
         if (!tool.permissions || tool.permissions.length === 0) continue;
-        const matched = tool.permissions.filter((p) =>
-          DANGEROUS_PERMISSIONS.includes(p)
-        );
+        const matched = tool.permissions.filter(isDangerousPermission);
         if (matched.length > 0) {
           findings.push({
             ruleId: RuleId.OVERPRIVILEGED_TOOL,

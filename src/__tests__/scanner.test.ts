@@ -295,6 +295,58 @@ describe('OVERPRIVILEGED_TOOL rule', () => {
     const findings = runConfigRule(RuleId.OVERPRIVILEGED_TOOL, config);
     expect(findings).toHaveLength(0);
   });
+
+  // A namespace wildcard is strictly broader than the specific dangerous action
+  // within it. `shell:*` must be flagged just like `shell:exec` — previously an
+  // exact-string match let the broader (more dangerous) grant slip through.
+  it('fires for a shell:* wildcard (broader than shell:exec)', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'super-runner', permissions: ['shell:*'] }],
+    };
+    const findings = runConfigRule(RuleId.OVERPRIVILEGED_TOOL, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].ruleId).toBe(RuleId.OVERPRIVILEGED_TOOL);
+    expect(findings[0].evidence).toContain('shell:*');
+  });
+
+  it.each(['process:*', 'exec:*', 'system:*', 'network:*'])(
+    'fires for the dangerous namespace wildcard "%s"',
+    (perm) => {
+      const config: ParsedMcpConfig = {
+        tools: [{ name: 'wildcard-tool', permissions: [perm] }],
+      };
+      const findings = runConfigRule(RuleId.OVERPRIVILEGED_TOOL, config);
+      expect(findings).toHaveLength(1);
+    }
+  );
+
+  // A global "*" grant is the ultimate overprivilege — it must be flagged.
+  it('fires for a global "*" permission', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'god-mode', permissions: ['*'] }],
+    };
+    const findings = runConfigRule(RuleId.OVERPRIVILEGED_TOOL, config);
+    expect(findings).toHaveLength(1);
+  });
+
+  // filesystem wildcards are owned by UNRESTRICTED_FILE_ACCESS; this rule must
+  // not also fire on them, to avoid double-counting the same tool.
+  it('does NOT fire for filesystem:* (owned by UNRESTRICTED_FILE_ACCESS)', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'fs-tool', permissions: ['filesystem:*'] }],
+    };
+    const findings = runConfigRule(RuleId.OVERPRIVILEGED_TOOL, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  // A narrow, non-dangerous namespaced permission stays quiet — no over-matching.
+  it('does not fire for a benign namespaced permission (network:read)', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'reader', permissions: ['network:read'] }],
+    };
+    const findings = runConfigRule(RuleId.OVERPRIVILEGED_TOOL, config);
+    expect(findings).toHaveLength(0);
+  });
 });
 
 // ─── TOOL_DESC_INJECTION ──────────────────────────────────────────────────────
