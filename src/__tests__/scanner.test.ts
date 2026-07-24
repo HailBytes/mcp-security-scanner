@@ -97,13 +97,56 @@ describe('NO_AUTH rule', () => {
     }
   );
 
-  it('does NOT fire for a meaningful auth.type (e.g. "bearer")', () => {
+  it('does NOT fire for a meaningful auth.type with a credential (e.g. "bearer")', () => {
     const config: ParsedMcpConfig = {
-      transport: { auth: { type: 'bearer' } },
+      transport: { auth: { type: 'bearer', token: 'a'.repeat(40) } },
     };
     const findings = runAuthRule(RuleId.NO_AUTH, config);
     expect(findings).toHaveLength(0);
   });
+
+  // Regression for #54: a credential-requiring mechanism declared without any
+  // credential is NOT authentication — the server has no secret to verify.
+  it.each(['bearer', 'token', 'apikey', 'api_key', 'api-key', 'basic', 'oauth', 'oauth2', 'digest'])(
+    'fires when auth.type "%s" is declared but no credential is provided',
+    (type) => {
+      const config: ParsedMcpConfig = {
+        transport: { auth: { type } },
+      };
+      const findings = runAuthRule(RuleId.NO_AUTH, config);
+      expect(findings).toHaveLength(1);
+      expect(findings[0].severity).toBe(Severity.CRITICAL);
+      expect(findings[0].evidence).toContain('no credential');
+    }
+  );
+
+  it.each(['Bearer', ' APIKEY ', 'OAuth2'])(
+    'fires case-insensitively for a credential-requiring type "%s" without a credential',
+    (type) => {
+      const config: ParsedMcpConfig = { transport: { auth: { type } } };
+      const findings = runAuthRule(RuleId.NO_AUTH, config);
+      expect(findings).toHaveLength(1);
+    }
+  );
+
+  it('does NOT fire when a credential-requiring type has an apiKey', () => {
+    const config: ParsedMcpConfig = {
+      transport: { auth: { type: 'apikey', apiKey: 'a'.repeat(40) } },
+    };
+    const findings = runAuthRule(RuleId.NO_AUTH, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  // Certificate-based mechanisms carry their credential outside auth.apiKey/token,
+  // so a bare type is treated as meaningful auth rather than a missing credential.
+  it.each(['mtls', 'certificate', 'custom-scheme'])(
+    'does NOT fire for non-credential-in-config auth.type "%s"',
+    (type) => {
+      const config: ParsedMcpConfig = { transport: { auth: { type } } };
+      const findings = runAuthRule(RuleId.NO_AUTH, config);
+      expect(findings).toHaveLength(0);
+    }
+  );
 
   it('does NOT fire when a credential is present even if type says "none"', () => {
     const config: ParsedMcpConfig = {

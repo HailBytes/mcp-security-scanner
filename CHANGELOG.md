@@ -21,6 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use `--fail-on=medium` / `--exit-code` for stricter gating.
 
 ### Fixed
+- `NO_AUTH`: now fires when a credential-requiring mechanism is declared but no
+  credential is provided (#54). Previously a config with `auth.type: "bearer"`
+  (or `apikey` / `basic` / `oauth` / `digest` / …) and **no** `apiKey`/`token`
+  passed the flagship CRITICAL gate, even though the server has no secret to
+  verify and would accept unauthenticated clients — the exact "mechanism
+  declared, secret missing" misconfiguration. Such configs now emit a CRITICAL
+  `NO_AUTH` finding whose evidence names the declared-but-uncredentialed type.
+  Certificate-based schemes (`mtls`, `certificate`, custom types) carry their
+  credential outside `transport.auth`, so a bare type there is still treated as
+  meaningful auth and does not fire.
 - URL/endpoint mode no longer produces false findings (#27). Scanning a URL
   previously ran every config rule against an effectively empty config, so any
   endpoint always emitted a CRITICAL `NO_AUTH` and a MEDIUM `MISSING_RATE_LIMIT`
