@@ -134,6 +134,50 @@ describe('toSarif()', () => {
     expect(sarif.runs[0].tool.driver.rules[0].id).toBe(RuleId.NO_AUTH);
   });
 
+  it('rule carries a security-severity of "9.0" for CRITICAL findings', () => {
+    const finding = makeFinding({ ruleId: RuleId.NO_AUTH, severity: Severity.CRITICAL });
+    const sarif = toSarif(makeReport({ findings: [finding] }));
+    expect(sarif.runs[0].tool.driver.rules[0].properties?.['security-severity']).toBe('9.0');
+  });
+
+  it('security-severity ranks each severity distinctly (critical > high > medium > low > info)', () => {
+    const findings: Finding[] = [
+      makeFinding({ ruleId: RuleId.NO_AUTH, severity: Severity.CRITICAL }),
+      makeFinding({ ruleId: RuleId.MISSING_TLS, severity: Severity.HIGH }),
+      makeFinding({ ruleId: RuleId.WILDCARD_CORS, severity: Severity.MEDIUM }),
+      makeFinding({ ruleId: RuleId.DEBUG_MODE_ENABLED, severity: Severity.LOW }),
+      makeFinding({ ruleId: RuleId.URL_SCAN_LIMITED, severity: Severity.INFO }),
+    ];
+    const sarif = toSarif(makeReport({ findings }));
+    const scoreOf = (id: RuleId) =>
+      Number(
+        sarif.runs[0].tool.driver.rules.find((r) => r.id === id)?.properties?.['security-severity']
+      );
+    expect(scoreOf(RuleId.NO_AUTH)).toBeGreaterThan(scoreOf(RuleId.MISSING_TLS));
+    expect(scoreOf(RuleId.MISSING_TLS)).toBeGreaterThan(scoreOf(RuleId.WILDCARD_CORS));
+    expect(scoreOf(RuleId.WILDCARD_CORS)).toBeGreaterThan(scoreOf(RuleId.DEBUG_MODE_ENABLED));
+    expect(scoreOf(RuleId.DEBUG_MODE_ENABLED)).toBeGreaterThan(scoreOf(RuleId.URL_SCAN_LIMITED));
+  });
+
+  it('rule is tagged "security" so GitHub categorizes it as a security alert', () => {
+    const finding = makeFinding({ ruleId: RuleId.NO_AUTH, severity: Severity.CRITICAL });
+    const sarif = toSarif(makeReport({ findings: [finding] }));
+    expect(sarif.runs[0].tool.driver.rules[0].properties?.tags).toContain('security');
+  });
+
+  it('rule carries fullDescription and help text derived from the finding', () => {
+    const finding = makeFinding({
+      ruleId: RuleId.NO_AUTH,
+      severity: Severity.CRITICAL,
+      description: 'No authentication was found in the config.',
+      remediation: 'Configure transport.auth.',
+    });
+    const sarif = toSarif(makeReport({ findings: [finding] }));
+    const rule = sarif.runs[0].tool.driver.rules[0];
+    expect(rule.fullDescription?.text).toBe('No authentication was found in the config.');
+    expect(rule.help?.text).toBe('Configure transport.auth.');
+  });
+
   it('configPath is included as artifact URI when provided', () => {
     const finding = makeFinding({ ruleId: RuleId.NO_AUTH, severity: Severity.CRITICAL });
     const sarif = toSarif(makeReport({ findings: [finding] }), './mcp-config.json');

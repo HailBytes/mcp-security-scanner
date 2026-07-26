@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **SARIF output now sets `security-severity` on every rule, so GitHub Code
+  Scanning ranks alerts correctly.** Previously all CRITICAL *and* HIGH findings
+  collapsed to SARIF `level: "error"` with no severity metadata, so the GitHub
+  Security tab showed them as indistinguishable "error" alerts and PR severity
+  gates (`upload-sarif` severity thresholds) had nothing to filter on. Each rule
+  now carries a CVSS-style `properties["security-severity"]` score
+  (CRITICAL `9.0`, HIGH `7.0`, MEDIUM `5.0`, LOW `2.0`, INFO `0.0`) that GitHub
+  maps to Critical/High/Medium/Low, a `tags: ["security"]` marker so findings are
+  categorized as security alerts, plus `fullDescription` (the finding
+  description) and `help` (the remediation) so the full context surfaces in the
+  Code Scanning UI. No CLI or API change — the SARIF document is strictly richer.
+
 ### Fixed
 - **`MISSING_TLS` / `INSECURE_TRANSPORT` no longer fire a false HIGH on loopback
   hosts (#48).** Both rules flagged any `http://` / `ws://` URL as a cleartext
