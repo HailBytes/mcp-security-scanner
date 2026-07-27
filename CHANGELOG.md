@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`MISSING_TLS` / `INSECURE_TRANSPORT` no longer fire a false HIGH on loopback
+  hosts (#48).** Both rules flagged any `http://` / `ws://` URL as a cleartext
+  network-eavesdropping risk, including loopback addresses (`localhost`,
+  `127.0.0.0/8`, `::1`) where traffic never leaves the machine. This failed the
+  default gate on the most common local-development setup (e.g.
+  `http://localhost:3000`). Loopback cleartext is now suppressed; non-loopback
+  cleartext endpoints are still flagged exactly as before.
+
 ### Changed
 - **Default CI/CD gate now fails on HIGH findings, not just CRITICAL (#47).**
   The pass decision was `score < 50 && no CRITICAL`; because HIGH findings are

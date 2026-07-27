@@ -1,6 +1,7 @@
 import { Finding, RuleId, Severity } from '../types.js';
 import { ParsedMcpConfig } from '../parser.js';
 import { Rule } from './index.js';
+import { isLoopbackHost } from './url-utils.js';
 
 const SECRET_PATTERNS: RegExp[] = [
   /sk-[a-zA-Z0-9]{20,}/i,           // OpenAI API key
@@ -16,7 +17,9 @@ export const runtimeRules: Rule[] = [
     title: 'Insecure WebSocket Transport (ws://)',
     check(config: ParsedMcpConfig): Finding[] {
       const url = config.transport?.url;
-      if (url && url.startsWith('ws://')) {
+      // ws:// to a loopback host stays on the machine and is not an
+      // eavesdropping risk, so it should not fire a HIGH. See #48.
+      if (url && url.startsWith('ws://') && !isLoopbackHost(url)) {
         return [
           {
             ruleId: RuleId.INSECURE_TRANSPORT,

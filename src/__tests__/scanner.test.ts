@@ -225,6 +225,32 @@ describe('MISSING_TLS rule', () => {
     const findings = runAuthRule(RuleId.MISSING_TLS, config);
     expect(findings).toHaveLength(0);
   });
+
+  // Loopback carve-out (#48): cleartext to a loopback host never leaves the
+  // machine, so http://localhost & co. must not fire a false HIGH.
+  it.each([
+    'http://localhost:3000',
+    'http://127.0.0.1:8080/mcp',
+    'http://127.1',
+    'http://[::1]:9000',
+    'http://api.localhost:3000',
+  ])('does not fire for loopback URL %s', (url) => {
+    const config: ParsedMcpConfig = {
+      serverUrl: url,
+      transport: { url, tls: false },
+    };
+    const findings = runAuthRule(RuleId.MISSING_TLS, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('still fires for a non-loopback http:// URL', () => {
+    const config: ParsedMcpConfig = {
+      serverUrl: 'http://10.0.0.5:3000',
+      transport: { url: 'http://10.0.0.5:3000', tls: false },
+    };
+    const findings = runAuthRule(RuleId.MISSING_TLS, config);
+    expect(findings).toHaveLength(1);
+  });
 });
 
 // ─── WILDCARD_CORS ────────────────────────────────────────────────────────────
@@ -560,6 +586,25 @@ describe('INSECURE_TRANSPORT rule', () => {
     const config: ParsedMcpConfig = {};
     const findings = runRuntimeRule(RuleId.INSECURE_TRANSPORT, config);
     expect(findings).toHaveLength(0);
+  });
+
+  // Loopback carve-out (#48): ws:// to a loopback host stays on the machine.
+  it.each([
+    'ws://localhost:9000/mcp',
+    'ws://127.0.0.1:9000',
+    'ws://[::1]:9000',
+  ])('does not fire for loopback URL %s', (url) => {
+    const config: ParsedMcpConfig = { transport: { url } };
+    const findings = runRuntimeRule(RuleId.INSECURE_TRANSPORT, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('still fires for a non-loopback ws:// URL', () => {
+    const config: ParsedMcpConfig = {
+      transport: { url: 'ws://192.168.1.10:9000/mcp' },
+    };
+    const findings = runRuntimeRule(RuleId.INSECURE_TRANSPORT, config);
+    expect(findings).toHaveLength(1);
   });
 });
 
