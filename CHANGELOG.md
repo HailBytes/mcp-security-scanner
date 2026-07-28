@@ -21,6 +21,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use `--fail-on=medium` / `--exit-code` for stricter gating.
 
 ### Fixed
+- **`NO_AUTH` now fires when a credential-requiring `auth.type` is declared with
+  no credential (#54).** The check treated any non-disabled `auth.type` as proof
+  of authentication, so a config like `auth: { type: "bearer" }` with no
+  `apiKey`/`token` — e.g. a deploy-time secret that never populated — sailed
+  through the flagship CRITICAL gate with **0 findings / `PASSED`**. Credential-
+  bearing types (`bearer`, `token`, `apikey`/`api_key`/`api-key`, `basic`) now
+  require a non-empty in-config secret; their absence reports CRITICAL `NO_AUTH`.
+  Mechanisms whose credential lives outside the config (`mtls`, `oauth`,
+  `oauth2`, `oidc`, `cert`) still pass on the type alone — no regression to the
+  #24 carve-out. Empty-string credentials (`apiKey: ""` / `token: ""`) are now
+  treated as absent, so they surface as `NO_AUTH` rather than being mislabelled a
+  "weak" (length-0) `WEAK_API_KEY` HIGH that still passed the default gate.
 - URL/endpoint mode no longer produces false findings (#27). Scanning a URL
   previously ran every config rule against an effectively empty config, so any
   endpoint always emitted a CRITICAL `NO_AUTH` and a MEDIUM `MISSING_RATE_LIMIT`
