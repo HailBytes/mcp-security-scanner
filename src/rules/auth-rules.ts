@@ -8,6 +8,29 @@ import { Rule } from './index.js';
  */
 const DISABLED_AUTH_TYPES = new Set(['none', 'disabled', 'off', 'false', 'anonymous']);
 
+/**
+ * Auth `type` values whose credential is an *in-config* secret (an `apiKey` or
+ * `token`). For these, declaring the type without also supplying the secret is
+ * not authentication — it is exactly the "auth looks configured but isn't"
+ * misconfiguration NO_AUTH exists to catch (e.g. a templated `token:
+ * "${MCP_TOKEN}"` whose env var never populated). Contrast with mechanisms like
+ * `mtls`/`oauth`/`oidc`, whose credential lives outside the config (a client
+ * cert, an IdP handshake) and so legitimately pass on the type alone.
+ */
+const CREDENTIAL_REQUIRED_AUTH_TYPES = new Set([
+  'bearer',
+  'token',
+  'apikey',
+  'api_key',
+  'api-key',
+  'basic',
+]);
+
+/** True when a value is a present, non-blank string credential. */
+function hasCredentialValue(value?: string): boolean {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
 /** True when a value looks like a JWT: three non-empty base64url segments. */
 function isJwt(value: string): boolean {
   return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value);
@@ -20,26 +43,56 @@ export const authRules: Rule[] = [
     title: 'No Authentication Configured',
     check(config: ParsedMcpConfig): Finding[] {
       const auth = config.transport?.auth;
-      // A real credential always counts as auth.
-      const hasCredential = Boolean(auth?.apiKey || auth?.token);
+      // A real credential always counts as auth. Empty/blank strings do not —
+      // `apiKey: ""` is an absent secret, not a (weak) one.
+      const hasCredential =
+        hasCredentialValue(auth?.apiKey) || hasCredentialValue(auth?.token);
       // An auth `type` only counts when it names a real mechanism — values like
       // "none" or "disabled" explicitly opt out of authentication.
       const type = auth?.type?.trim().toLowerCase();
-      const hasMeaningfulType = Boolean(type) && !DISABLED_AUTH_TYPES.has(type as string);
-      const hasAuth = hasCredential || hasMeaningfulType;
+      const hasType = Boolean(type);
+      const isDisabledType = hasType && DISABLED_AUTH_TYPES.has(type as string);
+      const isCredentialRequiredType =
+        hasType && CREDENTIAL_REQUIRED_AUTH_TYPES.has(type as string);
+      // A meaningful type is one that is neither "off" nor a mechanism that
+      // still needs an in-config secret to actually authenticate anything.
+      const hasExternalCredentialType =
+        hasType && !isDisabledType && !isCredentialRequiredType;
+
+      // Authenticated when a real credential is present, or the mechanism keeps
+      // its credential outside the config (mtls/oauth/…). A credential-required
+      // type with no in-config secret is NOT authenticated.
+      const hasAuth = hasCredential || hasExternalCredentialType;
 
       if (!hasAuth) {
+        let evidence: string;
+        let description: string;
+        if (isCredentialRequiredType) {
+          evidence = `transport.auth.type: "${auth?.type}" declared, but no apiKey/token credential is set`;
+          description =
+            `The MCP server declares "${auth?.type}" authentication but supplies no ` +
+            'apiKey/token credential, so no client is actually required to authenticate. ' +
+            'This is the classic "auth looks configured but isn\'t" gap — e.g. a ' +
+            'deploy-time secret that never populated.';
+        } else if (isDisabledType) {
+          evidence = `transport.auth.type: "${auth?.type}" (authentication explicitly disabled)`;
+          description =
+            'The MCP server transport has no authentication configured. ' +
+            'Any client can connect and invoke tools without credentials.';
+        } else {
+          evidence = 'transport.auth: absent';
+          description =
+            'The MCP server transport has no authentication configured. ' +
+            'Any client can connect and invoke tools without credentials.';
+        }
+
         return [
           {
             ruleId: RuleId.NO_AUTH,
             severity: Severity.CRITICAL,
             title: 'No Authentication Configured',
-            description:
-              'The MCP server transport has no authentication configured. ' +
-              'Any client can connect and invoke tools without credentials.',
-            evidence: hasMeaningfulType === false && Boolean(type)
-              ? `transport.auth.type: "${auth?.type}" (authentication explicitly disabled)`
-              : 'transport.auth: absent',
+            description,
+            evidence,
             remediation:
               'Configure authentication in transport.auth (e.g., apiKey, bearer token, or mTLS).',
             docsUrl: 'https://hailbytes.com/mcp/docs/rules/NO_AUTH',
@@ -69,6 +122,11 @@ export const authRules: Rule[] = [
       for (const { field, label } of candidates) {
         const value = auth?.[field];
         if (typeof value !== 'string') continue;
+        // An empty/blank value is an *absent* credential, not a weak one — that
+        // case is owned by NO_AUTH. Reporting it here would mislabel "no
+        // credential" as "short credential" (and let a hollow apiKey pass the
+        // gate as a mere HIGH).
+        if (value.trim() === '') continue;
         // Skip JWTs: they are structured (three base64url segments) and
         // effectively always longer than 32 chars, so length is not meaningful.
         if (field === 'token' && isJwt(value)) continue;

@@ -97,13 +97,49 @@ describe('NO_AUTH rule', () => {
     }
   );
 
-  it('does NOT fire for a meaningful auth.type (e.g. "bearer")', () => {
+  // Regression for #54: a credential-requiring type (bearer/apikey/basic) whose
+  // in-config secret is missing is unauthenticated — the mechanism is declared
+  // but no client is actually required to present a credential.
+  it.each(['bearer', 'apikey', 'api_key', 'api-key', 'basic', 'token'])(
+    'fires for credential-requiring auth.type "%s" with no credential',
+    (type) => {
+      const config: ParsedMcpConfig = { transport: { auth: { type } } };
+      const findings = runAuthRule(RuleId.NO_AUTH, config);
+      expect(findings).toHaveLength(1);
+      expect(findings[0].severity).toBe(Severity.CRITICAL);
+      expect(findings[0].evidence).toContain(type);
+    }
+  );
+
+  // Regression for #54: an empty-string credential is an absent credential, so
+  // a declared mechanism with `apiKey: ""` / `token: ""` must fire NO_AUTH.
+  it('fires when a credential-requiring type has an empty-string credential', () => {
     const config: ParsedMcpConfig = {
-      transport: { auth: { type: 'bearer' } },
+      transport: { auth: { type: 'apikey', apiKey: '' } },
+    };
+    const findings = runAuthRule(RuleId.NO_AUTH, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].severity).toBe(Severity.CRITICAL);
+  });
+
+  it('does NOT fire for a credential-requiring type with a real credential', () => {
+    const config: ParsedMcpConfig = {
+      transport: { auth: { type: 'bearer', token: 'a'.repeat(40) } },
     };
     const findings = runAuthRule(RuleId.NO_AUTH, config);
     expect(findings).toHaveLength(0);
   });
+
+  // The #24 carve-out must survive: mechanisms whose credential lives outside
+  // the config (mtls/oauth/oidc) still authenticate on the type alone.
+  it.each(['mtls', 'oauth', 'oauth2', 'oidc', 'cert'])(
+    'does NOT fire for external-credential auth.type "%s" without an in-config secret',
+    (type) => {
+      const config: ParsedMcpConfig = { transport: { auth: { type } } };
+      const findings = runAuthRule(RuleId.NO_AUTH, config);
+      expect(findings).toHaveLength(0);
+    }
+  );
 
   it('does NOT fire when a credential is present even if type says "none"', () => {
     const config: ParsedMcpConfig = {
@@ -136,6 +172,16 @@ describe('WEAK_API_KEY rule', () => {
 
   it('does not fire when no credential is set', () => {
     const config: ParsedMcpConfig = { transport: { auth: { type: 'bearer' } } };
+    const findings = runAuthRule(RuleId.WEAK_API_KEY, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  // Regression for #54: an empty-string credential is "absent", owned by
+  // NO_AUTH — it must not be mislabelled here as a weak (length-0) credential.
+  it('does not fire for an empty-string credential (absent, not weak)', () => {
+    const config: ParsedMcpConfig = {
+      transport: { auth: { type: 'apikey', apiKey: '', token: '   ' } },
+    };
     const findings = runAuthRule(RuleId.WEAK_API_KEY, config);
     expect(findings).toHaveLength(0);
   });
