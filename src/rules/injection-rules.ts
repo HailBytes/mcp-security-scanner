@@ -1,3 +1,4 @@
+import { posix as pathPosix } from 'path';
 import { Finding, RuleId, Severity } from '../types.js';
 import { ParsedMcpConfig } from '../parser.js';
 import { Rule } from './index.js';
@@ -13,6 +14,42 @@ const INJECTION_PATTERNS = [
 ];
 
 const UNSAFE_OUTPUT_DIRS = ['/etc', '/proc', '/sys', '/boot', '/root', '/dev'];
+
+/**
+ * Windows system locations that are just as dangerous to write into as the
+ * POSIX dirs above. Matched on the raw path (backslash- or forward-slash
+ * separated, drive letter case-insensitive) so Claude Desktop / Cursor configs
+ * authored on Windows are covered too.
+ */
+const WINDOWS_UNSAFE_PATTERNS: RegExp[] = [
+  /^[a-z]:[\\/]windows(?:[\\/]|$)/i,
+  /^[a-z]:[\\/]program files(?: \(x86\))?(?:[\\/]|$)/i,
+  /^[a-z]:[\\/]programdata(?:[\\/]|$)/i,
+];
+
+/**
+ * Decide whether a tool output path targets a sensitive system directory.
+ *
+ * POSIX paths are normalized first so that interior traversal cannot mask a
+ * system directory — e.g. `/var/app/logs/../../../etc/passwd` resolves to
+ * `/etc/passwd` and is flagged, where a raw prefix match would miss it.
+ * Normalization preserves the existing prefix-boundary behaviour (`/etcfoo`
+ * stays safe) because it only collapses `.`/`..` segments.
+ */
+function isUnsafeOutputPath(rawPath: string): boolean {
+  if (WINDOWS_UNSAFE_PATTERNS.some((re) => re.test(rawPath))) {
+    return true;
+  }
+
+  if (rawPath.startsWith('/')) {
+    const normalized = pathPosix.normalize(rawPath);
+    return UNSAFE_OUTPUT_DIRS.some(
+      (dir) => normalized === dir || normalized.startsWith(dir + '/')
+    );
+  }
+
+  return false;
+}
 
 export const injectionRules: Rule[] = [
   {
@@ -52,11 +89,7 @@ export const injectionRules: Rule[] = [
       const findings: Finding[] = [];
       for (const tool of config.tools ?? []) {
         if (!tool.outputPath) continue;
-        const isUnsafe = UNSAFE_OUTPUT_DIRS.some((dir) => {
-          const p = tool.outputPath!;
-          return p === dir || p.startsWith(dir + '/');
-        });
-        if (isUnsafe) {
+        if (isUnsafeOutputPath(tool.outputPath)) {
           findings.push({
             ruleId: RuleId.UNSAFE_TOOL_OUTPUT_PATH,
             severity: Severity.CRITICAL,

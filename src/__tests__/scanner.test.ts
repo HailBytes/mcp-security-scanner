@@ -467,6 +467,52 @@ describe('UNSAFE_TOOL_OUTPUT_PATH rule', () => {
     const findings = runInjectionRule(RuleId.UNSAFE_TOOL_OUTPUT_PATH, config);
     expect(findings).toHaveLength(1);
   });
+
+  // Traversal bypass: interior `..` segments must not mask a system directory.
+  it('fires for interior traversal that resolves into /etc', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'writer', outputPath: '/var/app/logs/../../../etc/passwd' }],
+    };
+    const findings = runInjectionRule(RuleId.UNSAFE_TOOL_OUTPUT_PATH, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].severity).toBe(Severity.CRITICAL);
+  });
+
+  // Traversal that resolves back into a safe dir stays safe (no over-flagging).
+  it('does not fire when traversal resolves back into an app dir', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'writer', outputPath: '/app/tmp/../data/output.json' }],
+    };
+    const findings = runInjectionRule(RuleId.UNSAFE_TOOL_OUTPUT_PATH, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  // Windows system paths are just as unsafe as their POSIX equivalents.
+  it('fires for a Windows System32 output path', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'winwriter', outputPath: 'C:\\Windows\\System32\\drivers\\etc\\hosts' }],
+    };
+    const findings = runInjectionRule(RuleId.UNSAFE_TOOL_OUTPUT_PATH, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].severity).toBe(Severity.CRITICAL);
+  });
+
+  it('fires for a Program Files output path (forward-slash form)', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'winwriter', outputPath: 'C:/Program Files/app/config.json' }],
+    };
+    const findings = runInjectionRule(RuleId.UNSAFE_TOOL_OUTPUT_PATH, config);
+    expect(findings).toHaveLength(1);
+  });
+
+  // A non-system Windows path is not flagged.
+  it('does not fire for a Windows user-data path', () => {
+    const config: ParsedMcpConfig = {
+      tools: [{ name: 'winwriter', outputPath: 'C:\\Users\\dev\\app\\out.json' }],
+    };
+    const findings = runInjectionRule(RuleId.UNSAFE_TOOL_OUTPUT_PATH, config);
+    expect(findings).toHaveLength(0);
+  });
 });
 
 // ─── Full scan() integration tests ───────────────────────────────────────────
