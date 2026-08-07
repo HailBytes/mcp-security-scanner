@@ -301,6 +301,79 @@ describe('CREDENTIALS_IN_URL rule', () => {
   });
 });
 
+// ─── PLACEHOLDER_CREDENTIAL ───────────────────────────────────────────────────
+
+describe('PLACEHOLDER_CREDENTIAL rule', () => {
+  // The core gap: a LONG placeholder (>= 32 chars, not a JWT) passes both
+  // NO_AUTH (a credential is present) and WEAK_API_KEY (length ok), so the gate
+  // would go green on a config shipped with an unfilled credential.
+  it('fires for a long unfilled placeholder apiKey', () => {
+    const config: ParsedMcpConfig = {
+      transport: { auth: { apiKey: 'your-api-key-here-replace-before-prod' } },
+    };
+    const weak = runAuthRule(RuleId.WEAK_API_KEY, config);
+    expect(weak).toHaveLength(0); // 37 chars — WEAK_API_KEY does not fire
+    const findings = runAuthRule(RuleId.PLACEHOLDER_CREDENTIAL, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].ruleId).toBe(RuleId.PLACEHOLDER_CREDENTIAL);
+    expect(findings[0].severity).toBe(Severity.HIGH);
+    expect(findings[0].evidence).toContain('apiKey');
+  });
+
+  it.each([
+    ['changeme', 'known default/weak credential'],
+    ['CHANGE_ME', 'known default/weak credential'],
+    ['password', 'known default/weak credential'],
+    ['<your-api-key>', 'unresolved template placeholder'],
+    ['{{API_KEY}}', 'unresolved template placeholder'],
+    ['${MCP_TOKEN}', 'unresolved template placeholder'],
+    ['xxxxxxxxxxxxxxxx', 'filler/repeated-character placeholder'],
+    ['replace-this-value-with-a-real-token', 'placeholder/example credential'],
+    ['insert-your-key-here', 'placeholder/example credential'],
+  ])('flags %s as a placeholder credential', (token, reason) => {
+    const config: ParsedMcpConfig = { transport: { auth: { token } } };
+    const findings = runAuthRule(RuleId.PLACEHOLDER_CREDENTIAL, config);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].evidence).toContain(reason);
+  });
+
+  it('flags a placeholder apiKey and token independently', () => {
+    const config: ParsedMcpConfig = {
+      transport: { auth: { apiKey: 'changeme', token: 'your-token-here' } },
+    };
+    const findings = runAuthRule(RuleId.PLACEHOLDER_CREDENTIAL, config);
+    expect(findings).toHaveLength(2);
+  });
+
+  it('does NOT fire for a real random-looking credential', () => {
+    const config: ParsedMcpConfig = {
+      transport: { auth: { apiKey: 'kZ8f3Qw9Lx2Vt7Rb1Np6Yc4Md0Ha5Ue' } },
+    };
+    const findings = runAuthRule(RuleId.PLACEHOLDER_CREDENTIAL, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('does NOT fire for a JWT-shaped token (bundled secure-config shape)', () => {
+    const config: ParsedMcpConfig = {
+      transport: {
+        auth: {
+          type: 'bearer',
+          token:
+            'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.c2VjcmV0LXRva2VuLWZvcnR5LXR3by1jaGFycw',
+        },
+      },
+    };
+    const findings = runAuthRule(RuleId.PLACEHOLDER_CREDENTIAL, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('does NOT fire when no credential is set', () => {
+    const config: ParsedMcpConfig = { transport: { auth: { type: 'bearer' } } };
+    const findings = runAuthRule(RuleId.PLACEHOLDER_CREDENTIAL, config);
+    expect(findings).toHaveLength(0);
+  });
+});
+
 // ─── MISSING_TLS ──────────────────────────────────────────────────────────────
 
 describe('MISSING_TLS rule', () => {
@@ -1099,7 +1172,7 @@ describe('default gate (passed) semantics', () => {
       transport: {
         url: 'https://x.example.com',
         tls: true,
-        auth: { type: 'bearer', token: 'a'.repeat(40) },
+        auth: { type: 'bearer', token: 'abcdef1234567890abcdef1234567890' },
       },
       rateLimit: { enabled: true, requestsPerMinute: 60 },
       tools: [
@@ -1120,7 +1193,7 @@ describe('default gate (passed) semantics', () => {
       transport: {
         url: 'https://x.example.com',
         tls: true,
-        auth: { type: 'bearer', token: 'a'.repeat(40) },
+        auth: { type: 'bearer', token: 'abcdef1234567890abcdef1234567890' },
       },
       rateLimit: { enabled: true, requestsPerMinute: 60 },
       tools: [{ name: 'runner', permissions: ['shell:exec'] }],
@@ -1146,7 +1219,7 @@ describe('default gate (passed) semantics', () => {
       transport: {
         url: 'https://example.com',
         tls: true,
-        auth: { type: 'bearer', token: 'a'.repeat(40) },
+        auth: { type: 'bearer', token: 'abcdef1234567890abcdef1234567890' },
       },
       rateLimit: { enabled: true, requestsPerMinute: 60 },
       tools: [
@@ -1165,7 +1238,7 @@ describe('default gate (passed) semantics', () => {
       transport: {
         url: 'https://example.com',
         tls: true,
-        auth: { type: 'bearer', token: 'a'.repeat(40) },
+        auth: { type: 'bearer', token: 'abcdef1234567890abcdef1234567890' },
       },
     });
     const report = await scan({ configPath: path, rules: [RuleId.MISSING_RATE_LIMIT] });
