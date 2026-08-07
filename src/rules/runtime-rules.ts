@@ -8,9 +8,18 @@ import { isLoopbackHost } from './url-utils.js';
  * be reported by *type* rather than by echoing the credential itself.
  */
 const SECRET_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
+  { name: 'Anthropic API key', pattern: /sk-ant-[a-zA-Z0-9_-]{20,}/ },
   { name: 'OpenAI API key', pattern: /sk-[a-zA-Z0-9]{20,}/i },
-  { name: 'GitHub token', pattern: /ghp_[a-zA-Z0-9]{36}/i },
+  { name: 'GitHub token (classic)', pattern: /ghp_[a-zA-Z0-9]{36}/i },
+  { name: 'GitHub OAuth/server/user/refresh token', pattern: /gh[osur]_[a-zA-Z0-9]{36}/ },
+  { name: 'GitHub fine-grained PAT', pattern: /github_pat_[a-zA-Z0-9_]{60,}/ },
+  { name: 'GitLab personal access token', pattern: /glpat-[a-zA-Z0-9_-]{20,}/ },
   { name: 'AWS access key ID', pattern: /AKIA[0-9A-Z]{16}/i },
+  { name: 'Google API key', pattern: /AIza[0-9A-Za-z_-]{35}/ },
+  { name: 'Slack token', pattern: /xox[baprs]-[a-zA-Z0-9-]{10,}/ },
+  { name: 'Stripe live secret/restricted key', pattern: /[sr]k_live_[a-zA-Z0-9]{16,}/ },
+  { name: 'npm access token', pattern: /npm_[a-zA-Z0-9]{36}/ },
+  { name: 'PEM private key', pattern: /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----/ },
   { name: 'hardcoded password', pattern: /[Pp]assword\s*[=:]\s*\S{8,}/ },
 ];
 

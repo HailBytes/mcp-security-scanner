@@ -858,6 +858,56 @@ describe('EXPOSED_SECRETS rule', () => {
     const findings = runRuntimeRule(RuleId.EXPOSED_SECRETS, config);
     expect(findings).toHaveLength(0);
   });
+
+  function withSecret(value: string): ParsedMcpConfig {
+    return { rawStrings: [value] };
+  }
+
+  // Fixtures are assembled from split literals (prefix + body) so that these
+  // synthetic, non-live test tokens never appear as a contiguous secret string
+  // in source — otherwise GitHub push protection blocks the commit.
+  const b = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  it.each([
+    ['OpenAI API key', 'sk-' + b],
+    ['Anthropic API key', 'sk-' + 'ant-api03-' + b],
+    ['GitHub classic PAT', 'ghp' + '_' + b],
+    ['GitHub OAuth token', 'gho' + '_' + b],
+    ['GitHub fine-grained PAT', 'github_pat' + '_' + 'a'.repeat(22) + '_' + 'b'.repeat(40)],
+    ['GitLab PAT', 'glpat' + '-' + 'abcdefghijklmnopqrst'],
+    ['AWS access key ID', 'AKIA' + 'IOSFODNN7EXAMPLE'],
+    ['Google API key', 'AIza' + 'SyA1234567890abcdefghijklmnopqrstuvw'],
+    ['Slack bot token', 'xoxb' + '-1234567890-abcdefghijklmnop'],
+    ['Stripe live secret key', 'sk_live' + '_abcdefghijklmnop1234'],
+    ['npm token', 'npm' + '_' + b],
+    ['PEM private key header', '-----BEGIN RSA PRIVATE KEY-----'],
+    ['password assignment', 'password: hunter2secret'],
+  ])('fires on a hardcoded %s', (_label, value) => {
+    const findings = runRuntimeRule(RuleId.EXPOSED_SECRETS, withSecret(value));
+    expect(findings).toHaveLength(1);
+    expect(findings[0].ruleId).toBe(RuleId.EXPOSED_SECRETS);
+    expect(findings[0].severity).toBe(Severity.CRITICAL);
+  });
+
+  it('does not fire on benign configuration strings', () => {
+    const config: ParsedMcpConfig = {
+      rawStrings: ['https://example.com', 'bearer', 'filesystem:read', 'read-document'],
+    };
+    const findings = runRuntimeRule(RuleId.EXPOSED_SECRETS, config);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('does not fire on a JWT-shaped auth token', () => {
+    const jwt = 'eyJhbG...Fycw';
+    const findings = runRuntimeRule(RuleId.EXPOSED_SECRETS, withSecret(jwt));
+    expect(findings).toHaveLength(0);
+  });
+
+  it('reports only once even when multiple secrets are present', () => {
+    const awsKey = 'AKIA' + 'IOSFODNN7EXAMPLE';
+    const config: ParsedMcpConfig = { rawStrings: [awsKey, 'sk-' + b] };
+    const findings = runRuntimeRule(RuleId.EXPOSED_SECRETS, config);
+    expect(findings).toHaveLength(1);
+  });
 });
 
 // ─── INSECURE_TRANSPORT rule ──────────────────────────────────────────────────
