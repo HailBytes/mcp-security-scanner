@@ -4,27 +4,56 @@ import { Rule } from './index.js';
 
 const DANGEROUS_PERMISSIONS = ['filesystem:write', 'network:*', 'shell:exec'];
 
+/**
+ * Classify a single CORS origin entry as insecure, returning a short reason, or
+ * `null` when it is a specific, safe origin. Covers the three permissive
+ * patterns that defeat the same-origin policy:
+ *  - the bare `*` wildcard (any origin),
+ *  - the literal `null` origin (reachable from sandboxed iframes, `data:`/`file:`
+ *    documents, and some redirects — a well-known CORS allow-list bypass), and
+ *  - wildcard-subdomain patterns like `https://*.example.com`, which trust every
+ *    current and future subdomain, including any that becomes attacker-controlled.
+ */
+function classifyInsecureOrigin(origin: string): string | null {
+  const value = origin.trim();
+  if (value === '*') return 'any origin ("*")';
+  // `null` is the string an allow-list would need to contain to match the
+  // browser-sent `Origin: null`; comparison is case-insensitive.
+  if (value.toLowerCase() === 'null') return 'the "null" origin';
+  // A `*` anywhere else means a wildcard subdomain/host pattern.
+  if (value.includes('*')) return `wildcard host pattern "${value}"`;
+  return null;
+}
+
 export const configRules: Rule[] = [
   {
     id: RuleId.WILDCARD_CORS,
     severity: Severity.MEDIUM,
-    title: 'Wildcard CORS Origin Configured',
+    title: 'Insecure CORS Origin Configured',
     check(config: ParsedMcpConfig): Finding[] {
       const origins = config.cors?.origins ?? [];
-      if (origins.includes('*')) {
+      const insecure = origins
+        .filter((o): o is string => typeof o === 'string')
+        .map((o) => ({ origin: o, reason: classifyInsecureOrigin(o) }))
+        .filter((entry): entry is { origin: string; reason: string } => entry.reason !== null);
+
+      if (insecure.length > 0) {
+        const reasons = insecure.map((e) => e.reason).join(', ');
         return [
           {
             ruleId: RuleId.WILDCARD_CORS,
             severity: Severity.MEDIUM,
-            title: 'Wildcard CORS Origin Configured',
+            title: 'Insecure CORS Origin Configured',
             description:
-              'The CORS configuration allows requests from any origin ("*"). ' +
-              'This can expose MCP endpoints to cross-site request forgery (CSRF) attacks ' +
-              'and allows any web page to interact with the server.',
-            evidence: 'cors.origins: ["*"]',
+              `The CORS configuration allows overly permissive origins (${reasons}). ` +
+              'Origins that match any host — the "*" wildcard, the "null" origin, or a ' +
+              'wildcard-subdomain pattern — let untrusted web pages interact with the MCP ' +
+              'server and can expose endpoints to cross-site request forgery (CSRF).',
+            evidence: `cors.origins: ${JSON.stringify(insecure.map((e) => e.origin))}`,
             remediation:
-              'Replace the wildcard origin with a specific allow-list of trusted origins ' +
-              '(e.g., "https://your-app.example.com").',
+              'Replace permissive origins with a specific allow-list of trusted, fully-qualified ' +
+              'origins (e.g., "https://your-app.example.com"). Do not allow "*", "null", or ' +
+              'wildcard-subdomain patterns.',
             docsUrl: 'https://hailbytes.com/mcp/docs/rules/WILDCARD_CORS',
           },
         ];
