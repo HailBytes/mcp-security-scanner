@@ -3,11 +3,15 @@ import { ParsedMcpConfig } from '../parser.js';
 import { Rule } from './index.js';
 import { isLoopbackHost } from './url-utils.js';
 
-const SECRET_PATTERNS: RegExp[] = [
-  /sk-[a-zA-Z0-9]{20,}/i,           // OpenAI API key
-  /ghp_[a-zA-Z0-9]{36}/i,            // GitHub PAT
-  /AKIA[0-9A-Z]{16}/i,               // AWS access key
-  /[Pp]assword\s*[=:]\s*\S{8,}/,     // Password assignment
+/**
+ * Named secret detectors. Each carries a human-readable `name` so a match can
+ * be reported by *type* rather than by echoing the credential itself.
+ */
+const SECRET_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
+  { name: 'OpenAI API key', pattern: /sk-[a-zA-Z0-9]{20,}/i },
+  { name: 'GitHub token', pattern: /ghp_[a-zA-Z0-9]{36}/i },
+  { name: 'AWS access key ID', pattern: /AKIA[0-9A-Z]{16}/i },
+  { name: 'hardcoded password', pattern: /[Pp]assword\s*[=:]\s*\S{8,}/ },
 ];
 
 export const runtimeRules: Rule[] = [
@@ -99,12 +103,16 @@ export const runtimeRules: Rule[] = [
     title: 'Potential Secret Exposed in Configuration',
     check(config: ParsedMcpConfig): Finding[] {
       const rawStrings = config.rawStrings ?? [];
+      // Report matches by *type and length only*. This scanner exists to keep
+      // secrets out of plaintext config, so it must never echo a detected
+      // credential back into its own report (stdout, JSON, SARIF, CI logs),
+      // where it would be re-exposed and potentially stored or indexed.
       const matched: string[] = [];
 
       for (const s of rawStrings) {
-        for (const pattern of SECRET_PATTERNS) {
+        for (const { name, pattern } of SECRET_PATTERNS) {
           if (pattern.test(s)) {
-            matched.push(s.length > 60 ? s.slice(0, 57) + '...' : s);
+            matched.push(`${name} (${s.length} chars, redacted)`);
             break;
           }
         }
@@ -120,7 +128,10 @@ export const runtimeRules: Rule[] = [
               'The configuration file appears to contain one or more hardcoded secrets ' +
               '(API keys, tokens, or passwords). Secrets committed to config files can be ' +
               'extracted by anyone with access to the file.',
-            evidence: `Matched value(s): ${matched.slice(0, 3).join('; ')}`,
+            evidence:
+              `Detected ${matched.length} secret(s) — values redacted: ` +
+              matched.slice(0, 3).join('; ') +
+              (matched.length > 3 ? `; +${matched.length - 3} more` : ''),
             remediation:
               'Remove secrets from configuration files. Use environment variables, a secrets manager ' +
               '(e.g., AWS Secrets Manager, HashiCorp Vault), or a .env file excluded from version control.',
