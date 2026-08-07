@@ -48,6 +48,12 @@ npx @hailbytes/mcp-security-scanner ./config.json --format=sarif --exit-code
 > make this explicit. Authentication, rate limiting, CORS, tool, and secret
 > rules require a **config file** (`.json`/`.yaml`) to evaluate. Point the
 > scanner at your MCP server configuration to run the full rule set.
+>
+> **Loopback carve-out.** Cleartext transport to a loopback host — `localhost`
+> (and any `*.localhost` name), `127.0.0.0/8`, or `::1` — never leaves the
+> machine, so `MISSING_TLS` and `INSECURE_TRANSPORT` do **not** fire on it (e.g.
+> `http://localhost:3000` and `ws://127.0.0.1:9000` pass). Only non-loopback
+> cleartext endpoints are flagged.
 
 ### Programmatic
 
