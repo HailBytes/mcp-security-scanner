@@ -128,14 +128,17 @@ export const injectionRules: Rule[] = [
       for (const tool of config.tools ?? []) {
         if (!tool.outputPath) continue;
         if (isUnsafeOutputPath(tool.outputPath)) {
+          const resolved = pathPosix.normalize(tool.outputPath);
           findings.push({
             ruleId: RuleId.UNSAFE_TOOL_OUTPUT_PATH,
             severity: Severity.CRITICAL,
             title: 'Tool Output Path Points to System Directory',
             description:
-              `Tool "${tool.name}" writes output to "${tool.outputPath}", ` +
-              'which is a sensitive system directory. Writing to these paths can compromise the host OS.',
-            evidence: `tool: ${tool.name}, outputPath: "${tool.outputPath}"`,
+              `Tool "${tool.name}" writes output to "${tool.outputPath}"` +
+              (resolved === tool.outputPath ? '' : ` (which resolves to "${resolved}")`) +
+              ', which is a sensitive system directory. Writing to these paths can compromise the host OS.',
+            evidence: `tool: ${tool.name}, outputPath: "${tool.outputPath}"` +
+              (resolved === tool.outputPath ? '' : ` (resolves to "${resolved}")`),
             remediation:
               'Restrict tool output paths to application-owned directories. ' +
               'Never allow tools to write to /etc, /proc, /sys, or other system paths.',
