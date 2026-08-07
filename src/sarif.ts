@@ -30,6 +30,7 @@ interface SarifRule {
   name: string;
   shortDescription: { text: string };
   helpUri?: string;
+  properties?: { 'security-severity': string };
 }
 
 interface SarifResult {
@@ -68,6 +69,32 @@ function severityToLevel(severity: Severity): 'error' | 'warning' | 'note' {
 }
 
 /**
+ * Map a Severity to a GitHub Code Scanning `security-severity` score.
+ *
+ * GitHub reads this numeric string (0.0–10.0) from each rule's `properties`
+ * bag to assign the Critical/High/Medium/Low badge in the Security tab and to
+ * drive severity-based alert filtering and branch-protection rules. Without it,
+ * GitHub can only rank by SARIF `level`, so CRITICAL and HIGH (both `error`)
+ * become indistinguishable. The bands follow GitHub's documented thresholds:
+ * 9.0+ → critical, 7.0–8.9 → high, 4.0–6.9 → medium, <4.0 → low.
+ */
+function severityToScore(severity: Severity): string {
+  switch (severity) {
+    case Severity.CRITICAL:
+      return '9.0';
+    case Severity.HIGH:
+      return '8.0';
+    case Severity.MEDIUM:
+      return '5.0';
+    case Severity.LOW:
+      return '2.0';
+    case Severity.INFO:
+    default:
+      return '0.0';
+  }
+}
+
+/**
  * Convert a SecurityReport to a minimal SARIF 2.1.0 document.
  *
  * @param report     - The scan report produced by scan().
@@ -83,6 +110,7 @@ export function toSarif(report: SecurityReport, configPath?: string): SarifOutpu
         name: finding.title,
         shortDescription: { text: finding.title },
         helpUri: finding.docsUrl,
+        properties: { 'security-severity': severityToScore(finding.severity) },
       });
     }
   }
